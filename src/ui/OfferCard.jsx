@@ -3,9 +3,9 @@ import Seg from './Seg.jsx'
 import { useNumericText } from './useNumericText.js'
 import MathDrilldown from './MathDrilldown.jsx'
 import { eur, ron, num } from '../format.js'
-import { isSrl } from '../engine/compute.js'
+import { isSrl, isB2B, microUnavailable } from '../engine/compute.js'
 import { OFFER_TEMPLATE, ENGAGEMENT_DESCRIPTIONS, accentVars } from '../defaults.js'
-import { TICKET_MAX, MW_JANUARY, OVERTIME_MIN_MULTIPLIER } from '../fiscal/constants.js'
+import { TICKET_MAX, MW_JANUARY, OVERTIME_MIN_MULTIPLIER, MICRO_CEILING_EUR } from '../fiscal/constants.js'
 import { MONTH_NAMES } from '../format.js'
 
 const CURRENCIES = ['EUR', 'USD', 'GBP', 'RON']
@@ -28,7 +28,19 @@ export default function OfferCard({
   const accent = o.color.hex
 
   const advancedCount = ADVANCED_FIELDS.filter((k) => o[k] !== OFFER_TEMPLATE[k]).length
-  const blocking = warnings.filter((w) => w.severity === 'error')
+
+  /* The micro ceiling is an error about ELIGIBILITY, not about the arithmetic:
+   * the figure shown is the 16% one and it is correct. So it alone does not
+   * suppress the derivation — hiding the maths there would withhold the very
+   * panel that shows what the offer really pays. */
+  const blocking = warnings.filter((w) => w.severity === 'error' && w.code !== 'micro-ceiling')
+
+  /* Whether the 1% regime is off the table at this turnover. On a B2B card
+   * `result.grossRON` IS the annual turnover, so this costs nothing. Not shown
+   * on employment cards: there the headline is a salary, `grossRON` comes from
+   * the net→gross solve and carries the 13th, so it is not a turnover figure —
+   * switching to SRL recomputes and the marker appears then. */
+  const microOff = isB2B(o.engagement) && microUnavailable(result.grossRON, globals)
 
   // The headline amount goes through the same text-backed machinery as every
   // other numeric field — it is the most-typed input on the page.
@@ -89,7 +101,15 @@ export default function OfferCard({
           options={[
             { v: 'pfa', l: 'PFA', title: ENGAGEMENT_DESCRIPTIONS.pfa },
             { v: 'srl-real', l: 'SRL 16%', title: ENGAGEMENT_DESCRIPTIONS['srl-real'] },
-            { v: 'srl-micro', l: 'SRL 1%', title: ENGAGEMENT_DESCRIPTIONS['srl-micro'] },
+            {
+              v: 'srl-micro',
+              l: 'SRL 1%',
+              unavailable: microOff,
+              title: microOff
+                ? `Turnover of ${eur(result.grossEUR)} is over the ${eur(MICRO_CEILING_EUR)} ceiling, ` +
+                  `so the 1% regime is not available on this offer.`
+                : ENGAGEMENT_DESCRIPTIONS['srl-micro'],
+            },
             { v: 'cim', l: 'Employed', title: ENGAGEMENT_DESCRIPTIONS.cim },
           ]}
         />

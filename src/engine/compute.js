@@ -22,6 +22,23 @@ export const ENGAGEMENTS = ['pfa', 'cim', 'srl-micro', 'srl-real']
 export const isSrl = (e) => e === 'srl-micro' || e === 'srl-real'
 export const isB2B = (e) => e !== 'cim'
 
+/* ── Micro eligibility ──────────────────────────────────────────────────────
+ *
+ * The only engagement type with a revenue ceiling. PFA and CIM have none — the
+ * 72-minimum-wage CASS cap limits a contribution BASE, not eligibility — and
+ * the profit-tax SRL is precisely the regime you fall into on the way out.
+ *
+ * Exported so the selector can mark the option unavailable using the same test
+ * the tax engine applies, rather than a second copy of it that can drift.
+ */
+
+/** The 100.000 € ceiling in RON, at the rate currently in the header. */
+export const microCeilingRON = (g) => MICRO_CEILING_EUR * (g.eurRon || 0)
+
+/** Annual turnover already clears the ceiling → the 1% regime is unavailable.
+ *  Strictly greater, matching srl.js: at exactly the ceiling you are still in. */
+export const microUnavailable = (turnoverRON, g) => turnoverRON > microCeilingRON(g)
+
 /* ── Currency ───────────────────────────────────────────────────────────── */
 
 /** Units of `currency` per 1 EUR. */
@@ -242,7 +259,7 @@ function computeSrlOffer(offer, g, work, schedule, monthlyRON, extras) {
   const activeMonths = schedule.filter((m) => m.active).length
   const monthlyExpenses = Math.max(0, g.pfaExpensesMonthly || 0) * g.eurRon
   const expenses = monthlyExpenses * activeMonths
-  const microCeilingRON = MICRO_CEILING_EUR * g.eurRon
+  const ceilingRON = microCeilingRON(g)
   const regime = offer.engagement === 'srl-micro' ? 'micro' : 'real'
 
   // Grouped by calendar year for the same reason as PFA: the micro ceiling and
@@ -267,7 +284,7 @@ function computeSrlOffer(offer, g, work, schedule, monthlyRON, extras) {
       salaryMonths: activeInYear.map((m) => m.calendarMonth),
       regime,
       payoutRatio: offer.payoutRatio ?? 1,
-      microCeilingRON,
+      microCeilingRON: ceilingRON,
       mealTicketPerDay: offer.mealTicket || 0,
       workedDays: work.daysWorked * yearShare,
       dependents: offer.dependents || 0,

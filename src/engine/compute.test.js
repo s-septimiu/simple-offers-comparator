@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { compute, computeEngagement, workingTime, ENGAGEMENTS } from './compute.js'
+import {
+  compute, computeEngagement, workingTime, ENGAGEMENTS, microCeilingRON, microUnavailable,
+} from './compute.js'
 import { solveAmount } from './solve.js'
 import { steadySchedule, engagementSchedule, byCalendarYear, hasTimeline } from './schedule.js'
 import { CAS_FLOOR_12 } from '../fiscal/constants.js'
@@ -87,6 +89,60 @@ describe('currency handling', () => {
     const inRon = compute(offer({ currency: 'RON', amount: 6000 * globals.eurRon }), globals)
     expect(inUsd.takeHomeEUR).toBeCloseTo(inEur.takeHomeEUR, 4)
     expect(inRon.takeHomeEUR).toBeCloseTo(inEur.takeHomeEUR, 4)
+  })
+})
+
+describe('micro eligibility', () => {
+  /* The selector marks the 1% option unavailable off this predicate, so it has
+   * to agree with the engine exactly — including on which side of the boundary
+   * the ceiling itself falls. */
+  it('agrees with the regime the engine actually applies', () => {
+    const ceiling = microCeilingRON(globals)
+    const monthlyEurAt = (turnoverRON) => turnoverRON / 12 / globals.eurRon
+
+    const at = compute(offer({ engagement: 'srl-micro', amount: monthlyEurAt(ceiling) }), globals)
+    expect(microUnavailable(at.grossRON, globals)).toBe(false)
+    expect(at.overCeiling).toBe(false)
+    expect(at.srl.regime).toBe('micro')
+
+    const over = compute(
+      offer({ engagement: 'srl-micro', amount: monthlyEurAt(ceiling * 1.5) }),
+      globals,
+    )
+    expect(microUnavailable(over.grossRON, globals)).toBe(true)
+    expect(over.overCeiling).toBe(true)
+    expect(over.srl.regime).toBe('real')
+  })
+
+  /**
+   * The ceiling is written in euro but tested in lei, so whether the header's
+   * FX field can flip eligibility depends entirely on what the offer is quoted
+   * in — which is not obvious and is worth pinning down.
+   */
+  it('cancels out on a euro offer and decides a leu one', () => {
+    // Turnover and ceiling are converted at the SAME rate, so it divides out
+    // exactly. No rate makes a 99.600 € offer ineligible.
+    const inEur = offer({ engagement: 'srl-micro', currency: 'EUR', amount: 8300 })
+    for (const eurRon of [4.5, 5.09, 6]) {
+      const g = { ...globals, eurRon }
+      expect(microUnavailable(compute(inEur, g).grossRON, g)).toBe(false)
+    }
+
+    // A leu-quoted offer is fixed while the ceiling moves under it, so here the
+    // rate alone decides — a euro worth 1% less can put you over.
+    const inRon = offer({ engagement: 'srl-micro', currency: 'RON', amount: 42_000 })
+    const turnover = compute(inRon, globals).grossRON // independent of the rate
+    const strongLeu = { ...globals, eurRon: (turnover / 100_000) * 0.99 } // ceiling drops below
+    const weakLeu = { ...globals, eurRon: (turnover / 100_000) * 1.01 } // ceiling rises above
+
+    expect(microUnavailable(compute(inRon, strongLeu).grossRON, strongLeu)).toBe(true)
+    expect(microUnavailable(compute(inRon, weakLeu).grossRON, weakLeu)).toBe(false)
+  })
+
+  it('does not blow up on a degenerate rate', () => {
+    for (const eurRon of [0, NaN, -1]) {
+      expect(typeof microUnavailable(500_000, { ...globals, eurRon })).toBe('boolean')
+    }
   })
 })
 

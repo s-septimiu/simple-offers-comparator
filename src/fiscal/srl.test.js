@@ -142,10 +142,18 @@ describe('computeSrl — regime mechanics', () => {
     expect(r.profitTax).toBeGreaterThan(0)
   })
 
+  /* The ceiling is tested with a strict >, and the UI now marks the 1% option
+   * unavailable off the same flag — so an off-by-one here would either bar a
+   * company that is still eligible or offer a regime it cannot have. */
   it('stays on micro at the ceiling and flips one leu past it', () => {
     const ceiling = scenario.microCeilingRON
-    expect(computeSrl({ ...scenario, regime: 'micro', turnoverRON: ceiling }).regime).toBe('micro')
-    expect(computeSrl({ ...scenario, regime: 'micro', turnoverRON: ceiling + 1 }).regime).toBe('real')
+    const at = computeSrl({ ...scenario, regime: 'micro', turnoverRON: ceiling })
+    const over = computeSrl({ ...scenario, regime: 'micro', turnoverRON: ceiling + 1 })
+
+    expect(at.regime).toBe('micro')
+    expect(at.overCeiling).toBe(false)
+    expect(over.regime).toBe('real')
+    expect(over.overCeiling).toBe(true)
   })
 
   it('pays the statutory minimum wage, tracking the July increase', () => {

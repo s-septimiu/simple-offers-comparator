@@ -66,6 +66,15 @@ body {
   .sev-warn { background: #2a2011; border-color: #5a4318; color: #fcd34d; }
 }
 
+/* The "n/a" badge on an option the user cannot lawfully take. Paired like the
+   severities above: the whole point of the badge is that it is READ, so a tint
+   picked for a white card must not wash out on a dark one. */
+.chip-na { background: #fee2e2; color: #b91c1c; }
+
+@media (prefers-color-scheme: dark) {
+  .chip-na { background: #3a1a1d; color: #fca5a5; }
+}
+
 /* ── Accent panels ─────────────────────────────────────────────────────────
    Per-offer colour is passed in as custom properties so the same element can
    resolve a pale tint in light mode and a deep one in dark, which an inline

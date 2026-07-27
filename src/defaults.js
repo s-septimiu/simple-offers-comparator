@@ -172,6 +172,8 @@ export const ENGAGEMENT_LABELS = {
 export const ENGAGEMENT_DESCRIPTIONS = {
   pfa: 'PFA sistem real — CASS on net income between 6 and 72 minimum wages, CAS on a stepped base, then 10% tax.',
   cim: 'Contract individual de muncă — CAS 25% + CASS 10% + 10% tax on the full gross, uncapped.',
-  'srl-micro': '1% of turnover, a mandatory minimum-wage employee, then 16% on dividends plus stepped CASS.',
+  'srl-micro':
+    '1% of turnover, a mandatory minimum-wage employee, then 16% on dividends plus stepped CASS. ' +
+    'Available only up to 100.000 € of turnover.',
   'srl-real': '16% on profit, then 16% on dividends plus stepped CASS. Required above 100.000 € of turnover.',
 }

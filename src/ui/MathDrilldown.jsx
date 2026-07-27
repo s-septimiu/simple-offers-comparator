@@ -119,17 +119,35 @@ function buildRows(offer, r, globals) {
     const s = r.srl
     if (!s) return rows
 
+    /* Under the profit tax an employee is optional, and with no salary set the
+     * whole payroll block is a column of "−0 lei" under a heading that claims a
+     * mandatory employee. Say that it is absent instead of printing zeroes. */
+    const hasSalary = s.salaryGross > 0.5
+
     divider(s.regime === 'micro' ? 'Company — microenterprise' : 'Company — profit tax')
     push('Turnover invoiced', ron(s.turnover))
     push('Deductible costs', neg(r.expensesRON), { negative: true })
-    push('Salary of the mandatory employee', neg(s.salaryGross), {
-      negative: true,
-      note: 'micro status requires at least one employee — in practice, yourself',
-    })
-    push(`CAM at ${pct(CAM_RATE * 100)}`, neg(s.cam), {
-      negative: true,
-      note: 'employer-borne, on top of gross',
-    })
+    if (hasSalary) {
+      push(
+        s.regime === 'micro' ? 'Salary of the mandatory employee' : 'Your salary',
+        neg(s.salaryGross),
+        {
+          negative: true,
+          note:
+            s.regime === 'micro'
+              ? 'micro status requires at least one employee — in practice, yourself'
+              : 'deductible, so it shields profit tax — but is taxed far harder than a dividend',
+        },
+      )
+      push(`CAM at ${pct(CAM_RATE * 100)}`, neg(s.cam), {
+        negative: true,
+        note: 'employer-borne, on top of gross',
+      })
+    } else {
+      push('Salary', '—', {
+        note: 'no employee on the payroll — the profit tax regime does not require one, so everything comes out as dividend',
+      })
+    }
     if (s.regime === 'micro') {
       push(`Micro tax at ${pct(MICRO_TAX_RATE * 100)}`, neg(s.companyTax), {
         negative: true,
@@ -140,11 +158,13 @@ function buildRows(offer, r, globals) {
     }
     push('Distributable profit', ron(s.dividendsGross + s.retained))
 
-    divider('Your salary')
-    push(`CAS at ${pct(CAS_RATE * 100)}`, neg(s.salaryCas), { negative: true })
-    push(`CASS at ${pct(CASS_RATE * 100)}`, neg(s.salaryCass), { negative: true })
-    push(`Income tax at ${pct(TAX_RATE * 100)}`, neg(s.salaryTax), { negative: true })
-    push('Net salary', ron(s.salaryNet))
+    if (hasSalary) {
+      divider('Your salary')
+      push(`CAS at ${pct(CAS_RATE * 100)}`, neg(s.salaryCas), { negative: true })
+      push(`CASS at ${pct(CASS_RATE * 100)}`, neg(s.salaryCass), { negative: true })
+      push(`Income tax at ${pct(TAX_RATE * 100)}`, neg(s.salaryTax), { negative: true })
+      push('Net salary', ron(s.salaryNet))
+    }
 
     divider('Your dividends')
     push('Gross distributed', ron(s.dividendsGross))
@@ -214,9 +234,11 @@ function buildRows(offer, r, globals) {
   if (r.work.hoursWorked > 0) push('Per hour worked', eur(r.perHourEUR, 1))
   push('Kept from every leu', pct(r.keepRatio))
   push('Pension credited', ron(r.pensionRON), {
-    note: isSrl(offer.engagement)
-      ? 'only the minimum-wage salary accrues pension — the hidden cost of this route'
-      : null,
+    note: !isSrl(offer.engagement)
+      ? null
+      : r.pensionRON > 0.5
+        ? 'only the minimum-wage salary accrues pension — the hidden cost of this route'
+        : 'no salary, so no pension accrues at all — the hidden cost of this route',
   })
 
   return rows

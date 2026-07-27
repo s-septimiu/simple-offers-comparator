@@ -8,6 +8,9 @@
  *
  * Severity: 'error' blocks belief in the number, 'warn' changes a decision,
  * 'info' is worth knowing but harmless.
+ *
+ * `code` is optional and exists for the one error the UI has to treat specially
+ * — see 'micro-ceiling' below.
  */
 
 import {
@@ -25,7 +28,7 @@ import { ron, eur, num } from '../format.js'
 
 export function warningsFor(offer, result, globals) {
   const out = []
-  const add = (severity, title, detail) => out.push({ severity, title, detail })
+  const add = (severity, title, detail, code) => out.push({ severity, title, detail, code })
 
   /* ── The dividend CASS cliff: the sharpest edge in the whole model ────── */
   if (result.cliff) {
@@ -48,12 +51,23 @@ export function warningsFor(offer, result, globals) {
       'Over the microenterprise ceiling',
       `Turnover exceeds the ${eur(MICRO_CEILING_EUR)} limit, so the 1% regime does not apply. ` +
         `Figures below are computed at 16% on profit instead.`,
+      /* Coded because it is the one 'error' that does NOT invalidate the number
+       * underneath it — the 16% figure is exactly what this offer would pay. The
+       * card therefore keeps its derivation open rather than hiding it. */
+      'micro-ceiling',
     )
   }
 
   // Likewise the employee requirement is a condition of micro status, not of
-  // running an SRL — a profit-tax company can simply take dividends.
-  if (offer.engagement === 'srl-micro' && offer.selfHireGrossMonthly == null) {
+  // running an SRL — a profit-tax company can simply take dividends. Which is
+  // why it must not be claimed on a company that has been pushed off micro by
+  // the ceiling: there the employee is genuinely optional, and the engine has
+  // already priced it at zero.
+  if (
+    offer.engagement === 'srl-micro' &&
+    offer.selfHireGrossMonthly == null &&
+    !result.overCeiling
+  ) {
     add(
       'info',
       'An employee is mandatory',
