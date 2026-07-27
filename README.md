@@ -2,7 +2,7 @@
 
 A single HTML file that normalizes Romanian freelance and employment offers to the same unit — **what actually lands in your account** — so you can compare them directly regardless of contract type, currency, or how the number was quoted.
 
-**[→ Open the tool](https://unrivaled-granita-92f247.netlify.app)**
+**[→ Open the tool](https://romanian-simple-offers-comparator.netlify.app/)**
 
 ---
 
