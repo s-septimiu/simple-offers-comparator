@@ -1,0 +1,1011 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Offer Normalizer — Romania 2026</title>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { margin: 0; background: #F8FAFC; }
+  input[type=number]::-webkit-outer-spin-button,
+  input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type=number] { -moz-appearance: textfield; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const {
+  useState,
+  useMemo,
+  useEffect,
+  useCallback
+} = React;
+
+/* ────────────────────────────────────────────────────────────
+   Romanian fiscal constants — 2026
+   Reference gross minimum wage at 1 Jan 2026 = 4.050 RON.
+   Plafoane are pinned to that value for the whole fiscal year.
+   ──────────────────────────────────────────────────────────── */
+const MW = 4050;
+const CAS_FLOOR_12 = 12 * MW; //  48.600 — below this, PFA owes no CAS
+const CAS_FLOOR_24 = 24 * MW; //  97.200 — above this, base caps at 24 MW
+const CASS_FLOOR_6 = 6 * MW; //  24.300 — minimum CASS base
+const CASS_CAP_72 = 72 * MW; // 291.600 — CASS ceiling (Legea 141/2025)
+const CIM_NET_RATIO = 0.585; // 1 − 0.25 − 0.10, then −10% tax on remainder
+const TICKET_NET_RATIO = 0.80; // meal tickets: −10% tax −10% CASS, CAS exempt
+const TICKET_MAX = 45; // RON / worked day (Legea 201/2025)
+
+const PALETTE = [{
+  hex: "#4F46E5",
+  soft: "#EEF2FF",
+  name: "indigo"
+}, {
+  hex: "#0D9488",
+  soft: "#F0FDFA",
+  name: "teal"
+}, {
+  hex: "#B45309",
+  soft: "#FFFBEB",
+  name: "amber"
+}, {
+  hex: "#BE123C",
+  soft: "#FFF1F2",
+  name: "rose"
+}, {
+  hex: "#7C3AED",
+  soft: "#F5F3FF",
+  name: "violet"
+}, {
+  hex: "#0369A1",
+  soft: "#F0F9FF",
+  name: "sky"
+}];
+
+/* ── Formatters ─────────────────────────────────────────────── */
+const eur = (n, d = 0) => "€" + new Intl.NumberFormat("de-DE", {
+  maximumFractionDigits: d,
+  minimumFractionDigits: d
+}).format(n || 0);
+const ron = n => new Intl.NumberFormat("ro-RO", {
+  maximumFractionDigits: 0
+}).format(Math.round(n || 0)) + " lei";
+const pct = n => (n || 0).toFixed(1) + "%";
+
+/* ── FX: race several sources, first success wins ───────────── */
+function checkFx(r) {
+  const ok = (v, lo, hi) => v && v > lo && v < hi;
+  if (!ok(r.usd, 0.5, 5) || !ok(r.gbp, 0.3, 3) || !ok(r.ron, 1, 100)) throw new Error("bad payload");
+  return r;
+}
+async function fetchRates() {
+  const today = new Date().toISOString().split("T")[0];
+  const jd = u => fetch(u).then(x => {
+    if (!x.ok) throw new Error();
+    return x.json();
+  });
+  const attempts = [jd("https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/eur.json").then(d => checkFx({
+    usd: d.eur?.usd,
+    gbp: d.eur?.gbp,
+    ron: d.eur?.ron,
+    date: d.date,
+    src: "fawazahmed0"
+  })), jd("https://latest.currency-api.pages.dev/v1/currencies/eur.json").then(d => checkFx({
+    usd: d.eur?.usd,
+    gbp: d.eur?.gbp,
+    ron: d.eur?.ron,
+    date: d.date,
+    src: "fawazahmed0"
+  })), jd("https://api.frankfurter.app/latest?from=EUR&to=USD,GBP,RON").then(d => checkFx({
+    usd: d.rates?.USD,
+    gbp: d.rates?.GBP,
+    ron: d.rates?.RON,
+    date: d.date,
+    src: "ECB"
+  })), jd("https://open.er-api.com/v6/latest/EUR").then(d => checkFx({
+    usd: d.rates?.USD,
+    gbp: d.rates?.GBP,
+    ron: d.rates?.RON,
+    date: today,
+    src: "er-api"
+  }))];
+  return Promise.any(attempts);
+}
+
+/* ── Tax engines ────────────────────────────────────────────── */
+// PFA, sistem real. Input & output in RON.
+function pfaTax(netIncomeRON, mode, flatPct) {
+  if (netIncomeRON <= 0) return {
+    cas: 0,
+    cass: 0,
+    tax: 0,
+    total: 0
+  };
+  if (mode === "flat") {
+    const total = netIncomeRON * (flatPct / 100);
+    return {
+      cas: 0,
+      cass: 0,
+      tax: total,
+      total,
+      flat: true
+    };
+  }
+  let casBase = 0;
+  if (netIncomeRON >= CAS_FLOOR_24) casBase = CAS_FLOOR_24;else if (netIncomeRON >= CAS_FLOOR_12) casBase = CAS_FLOOR_12;
+  const cas = casBase * 0.25;
+  const cassBase = Math.min(Math.max(netIncomeRON, CASS_FLOOR_6), CASS_CAP_72);
+  const cass = cassBase * 0.10;
+  const tax = Math.max(0, netIncomeRON - cas - cass) * 0.10;
+  return {
+    cas,
+    cass,
+    tax,
+    total: cas + cass + tax
+  };
+}
+// CIM. Personal deduction is ~0 at senior gross levels, so net is linear in gross.
+function cimFromGross(grossRON) {
+  const cas = grossRON * 0.25;
+  const cass = grossRON * 0.10;
+  const tax = Math.max(0, grossRON - cas - cass) * 0.10;
+  return {
+    cas,
+    cass,
+    tax,
+    net: grossRON - cas - cass - tax
+  };
+}
+const cimGrossFromNet = netRON => netRON / CIM_NET_RATIO;
+
+/* ── Per-offer computation ──────────────────────────────────── */
+function compute(o, g) {
+  const rate = {
+    EUR: 1,
+    USD: g.eurUsd,
+    GBP: g.eurGbp,
+    RON: g.eurRon
+  }[o.currency] || 1;
+  const toEUR = v => v / rate;
+  const hoursPerDay = o.hoursPerWeek / 5;
+  const wanted = g.vacationDays + g.sickDays;
+  const daysWorked = Math.max(0, g.workDays - wanted);
+  const hoursWorked = daysWorked * hoursPerDay;
+  // On B2B every absent day is unpaid unless the contract grants it.
+  // On CIM sick leave is covered separately, so only holiday beyond entitlement bites.
+  const unpaidOff = o.engagement === "pfa" ? Math.max(0, wanted - o.ptoDays) : Math.max(0, g.vacationDays - o.ptoDays);
+  const paidDays = Math.max(0, g.workDays - unpaidOff);
+  const attendance = g.workDays > 0 ? paidDays / g.workDays : 0;
+  let grossEUR = 0,
+    grossFullEUR = 0,
+    takeHomeEUR = 0,
+    casEUR = 0,
+    cassEUR = 0,
+    taxEUR = 0,
+    expensesEUR = 0,
+    unpaidLossEUR = 0,
+    ticketsNetEUR = 0;
+  if (o.engagement === "pfa") {
+    const dayRate = o.basis === "hourly" ? o.amount * hoursPerDay : o.basis === "daily" ? o.amount : o.amount * 12 / g.workDays;
+    grossFullEUR = toEUR(dayRate * g.workDays + o.bonus);
+    grossEUR = toEUR(dayRate * paidDays + o.bonus);
+    unpaidLossEUR = grossFullEUR - grossEUR;
+    expensesEUR = g.pfaExpensesMonthly * 12;
+    const netIncomeEUR = Math.max(0, grossEUR - expensesEUR);
+    const t = pfaTax(netIncomeEUR * g.eurRon, g.pfaMode, g.pfaFlat);
+    casEUR = t.cas / g.eurRon;
+    cassEUR = t.cass / g.eurRon;
+    taxEUR = t.tax / g.eurRon;
+    takeHomeEUR = netIncomeEUR - t.total / g.eurRon;
+  } else {
+    const toRON = o.currency === "RON" ? 1 : g.eurRon / rate;
+    const grossMonthlyRON = (o.isNet ? cimGrossFromNet(o.amount) : o.amount) * toRON;
+    const bonusRON = o.bonus * toRON;
+    const fullGrossRON = grossMonthlyRON * 12 + bonusRON;
+    const paidGrossRON = grossMonthlyRON * 12 * attendance + bonusRON;
+    grossFullEUR = fullGrossRON / g.eurRon;
+    grossEUR = paidGrossRON / g.eurRon;
+    unpaidLossEUR = grossFullEUR - grossEUR;
+    const c = cimFromGross(paidGrossRON);
+    casEUR = c.cas / g.eurRon;
+    cassEUR = c.cass / g.eurRon;
+    taxEUR = c.tax / g.eurRon;
+    const ticketsNominalRON = Math.min(o.mealTicket, TICKET_MAX) * daysWorked;
+    ticketsNetEUR = ticketsNominalRON * TICKET_NET_RATIO / g.eurRon;
+    takeHomeEUR = c.net / g.eurRon + ticketsNetEUR;
+  }
+  const benefitsEUR = o.benefitsMonthly * 12;
+  takeHomeEUR += benefitsEUR;
+  const pensionEUR = casEUR;
+  const valueEUR = takeHomeEUR + pensionEUR * (g.pensionWeight / 100);
+  const barTotal = takeHomeEUR + casEUR + cassEUR + taxEUR + expensesEUR + unpaidLossEUR;
+  return {
+    grossEUR,
+    grossFullEUR,
+    takeHomeEUR,
+    casEUR,
+    cassEUR,
+    taxEUR,
+    expensesEUR,
+    unpaidLossEUR,
+    ticketsNetEUR,
+    benefitsEUR,
+    pensionEUR,
+    valueEUR,
+    barTotal,
+    daysWorked,
+    paidDays,
+    unpaidOff,
+    hoursWorked,
+    monthlyEUR: takeHomeEUR / 12,
+    monthlyRON: takeHomeEUR / 12 * g.eurRon,
+    annualRON: takeHomeEUR * g.eurRon,
+    perHour: hoursWorked > 0 ? takeHomeEUR / hoursWorked : 0,
+    keepRatio: barTotal > 0 ? takeHomeEUR / barTotal * 100 : 0
+  };
+}
+
+// What would this offer's headline number need to be to match a target take-home?
+function solveAmount(offer, globals, target) {
+  let lo = 0,
+    hi = Math.max(offer.amount * 8, 1000);
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    const v = compute({
+      ...offer,
+      amount: mid
+    }, globals).takeHomeEUR;
+    if (v < target) lo = mid;else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+/* ── Small UI atoms ─────────────────────────────────────────── */
+function Field({
+  label,
+  value,
+  onChange,
+  suffix,
+  step = 1,
+  min = 0,
+  max,
+  hint,
+  accent
+}) {
+  return /*#__PURE__*/React.createElement("label", {
+    className: "block mb-2.5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex justify-between items-baseline mb-1"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] font-semibold text-slate-500 uppercase tracking-[0.12em]"
+  }, label), hint && /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] text-slate-400"
+  }, hint)), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-stretch rounded-lg border border-slate-200 bg-white overflow-hidden focus-within:border-slate-400 transition-colors"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    value: value,
+    step: step,
+    min: min,
+    max: max,
+    onChange: e => onChange(parseFloat(e.target.value) || 0),
+    style: {
+      color: accent
+    },
+    className: "flex-1 w-full min-w-0 px-2.5 py-1.5 text-sm font-semibold bg-transparent outline-none tabular-nums"
+  }), suffix && /*#__PURE__*/React.createElement("span", {
+    className: "px-2 py-1.5 text-[10px] font-semibold text-slate-400 bg-slate-50 border-l border-slate-200 flex items-center whitespace-nowrap"
+  }, suffix)));
+}
+function Seg({
+  options,
+  value,
+  onChange,
+  accent
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex rounded-lg bg-slate-100 p-0.5 gap-0.5"
+  }, options.map(opt => {
+    const on = opt.v === value;
+    return /*#__PURE__*/React.createElement("button", {
+      key: opt.v,
+      onClick: () => onChange(opt.v),
+      style: on ? {
+        background: "#fff",
+        color: accent,
+        boxShadow: "0 1px 2px rgba(0,0,0,.06)"
+      } : undefined,
+      className: `flex-1 px-1.5 py-1 rounded-[6px] text-[10px] font-bold uppercase tracking-wider transition-colors ${on ? "" : "text-slate-400 hover:text-slate-600"}`
+    }, opt.l);
+  }));
+}
+
+/* ── Signature: where every gross euro actually goes ─────────── */
+function Waterfall({
+  offers,
+  results,
+  scale
+}) {
+  const segs = r => [{
+    k: "Take-home",
+    v: r.takeHomeEUR - r.ticketsNetEUR - r.benefitsEUR,
+    o: 1
+  }, {
+    k: "Meal tickets + perks",
+    v: r.ticketsNetEUR + r.benefitsEUR,
+    o: 0.72
+  }, {
+    k: "Pension (CAS)",
+    v: r.casEUR,
+    o: 0.42
+  }, {
+    k: "Health (CASS)",
+    v: r.cassEUR,
+    o: 0.30
+  }, {
+    k: "Income tax",
+    v: r.taxEUR,
+    o: 0.22
+  }, {
+    k: "Business costs",
+    v: r.expensesEUR,
+    o: 0.14
+  }, {
+    k: "Unpaid leave",
+    v: r.unpaidLossEUR,
+    o: 0.07
+  }].filter(s => s.v > 0.5);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "space-y-3"
+  }, offers.map((o, i) => {
+    const r = results[i];
+    const total = segs(r).reduce((a, s) => a + s.v, 0);
+    const width = scale > 0 ? total / scale * 100 : 0;
+    return /*#__PURE__*/React.createElement("div", {
+      key: o.id
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-baseline justify-between mb-1 gap-2"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "text-xs font-bold text-slate-700 truncate"
+    }, o.name), /*#__PURE__*/React.createElement("span", {
+      className: "text-[11px] tabular-nums text-slate-400 shrink-0"
+    }, "keeps ", /*#__PURE__*/React.createElement("span", {
+      className: "font-bold",
+      style: {
+        color: o.color.hex
+      }
+    }, pct(r.keepRatio)))), /*#__PURE__*/React.createElement("div", {
+      className: "flex h-7 rounded-md overflow-hidden bg-slate-100",
+      style: {
+        width: `${Math.max(width, 2)}%`
+      }
+    }, segs(r).map(s => /*#__PURE__*/React.createElement("div", {
+      key: s.k,
+      title: `${s.k}: ${eur(s.v)}`,
+      style: {
+        width: `${s.v / total * 100}%`,
+        background: o.color.hex,
+        opacity: s.o
+      },
+      className: "h-full border-r border-white/40 last:border-r-0"
+    }))));
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap gap-x-3 gap-y-1 pt-2 border-t border-slate-100"
+  }, ["Take-home", "Meal tickets + perks", "Pension (CAS)", "Health (CASS)", "Income tax", "Business costs", "Unpaid leave"].map((k, idx) => /*#__PURE__*/React.createElement("span", {
+    key: k,
+    className: "flex items-center gap-1 text-[10px] text-slate-500"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "w-2 h-2 rounded-sm",
+    style: {
+      background: "#334155",
+      opacity: [1, .72, .42, .30, .22, .14, .07][idx]
+    }
+  }), k))));
+}
+
+/* ── Main ───────────────────────────────────────────────────── */
+function OfferComparator() {
+  const [offers, setOffers] = useState([{
+    id: 1,
+    name: "Hourly B2B",
+    engagement: "pfa",
+    basis: "hourly",
+    amount: 40,
+    currency: "EUR",
+    isNet: false,
+    hoursPerWeek: 40,
+    ptoDays: 0,
+    bonus: 0,
+    mealTicket: 0,
+    benefitsMonthly: 0,
+    color: PALETTE[0]
+  }, {
+    id: 2,
+    name: "Monthly B2B",
+    engagement: "pfa",
+    basis: "monthly",
+    amount: 6500,
+    currency: "USD",
+    isNet: false,
+    hoursPerWeek: 40,
+    ptoDays: 15,
+    bonus: 0,
+    mealTicket: 0,
+    benefitsMonthly: 0,
+    color: PALETTE[1]
+  }, {
+    id: 3,
+    name: "Employment",
+    engagement: "cim",
+    basis: "monthly",
+    amount: 30000,
+    currency: "RON",
+    isNet: false,
+    hoursPerWeek: 40,
+    ptoDays: 25,
+    bonus: 0,
+    mealTicket: 45,
+    benefitsMonthly: 40,
+    color: PALETTE[2]
+  }]);
+  const [workDays, setWorkDays] = useState(248);
+  const [vacationDays, setVacationDays] = useState(25);
+  const [sickDays, setSickDays] = useState(5);
+  const [pfaExpensesMonthly, setPfaExpensesMonthly] = useState(250);
+  const [pfaMode, setPfaMode] = useState("detailed");
+  const [pfaFlat, setPfaFlat] = useState(22);
+  const [pensionWeight, setPensionWeight] = useState(50);
+  const [rankBy, setRankBy] = useState("take");
+  const [eurRon, setEurRon] = useState(5.25);
+  const [eurUsd, setEurUsd] = useState(1.10);
+  const [eurGbp, setEurGbp] = useState(0.85);
+  const [fx, setFx] = useState({
+    date: null,
+    src: null,
+    loading: false,
+    error: null
+  });
+  const loadFx = useCallback(async () => {
+    setFx(s => ({
+      ...s,
+      loading: true,
+      error: null
+    }));
+    try {
+      const d = await fetchRates();
+      setEurRon(d.ron);
+      setEurUsd(d.usd);
+      setEurGbp(d.gbp);
+      setFx({
+        date: d.date,
+        src: d.src,
+        loading: false,
+        error: null
+      });
+    } catch {
+      setFx({
+        date: null,
+        src: null,
+        loading: false,
+        error: "Rates unavailable — enter them by hand."
+      });
+    }
+  }, []);
+  useEffect(() => {
+    loadFx();
+  }, [loadFx]);
+  const globals = useMemo(() => ({
+    workDays,
+    vacationDays,
+    sickDays,
+    pfaExpensesMonthly,
+    pfaMode,
+    pfaFlat,
+    pensionWeight,
+    eurRon,
+    eurUsd,
+    eurGbp
+  }), [workDays, vacationDays, sickDays, pfaExpensesMonthly, pfaMode, pfaFlat, pensionWeight, eurRon, eurUsd, eurGbp]);
+  const results = useMemo(() => offers.map(o => compute(o, globals)), [offers, globals]);
+  const metric = r => rankBy === "take" ? r.takeHomeEUR : r.valueEUR;
+  const best = results.length ? results.reduce((a, b) => metric(b) > metric(a) ? b : a) : null;
+  const bestIdx = best ? results.indexOf(best) : -1;
+  const scale = Math.max(...results.map(r => r.barTotal), 1);
+  const patch = (id, k, v) => setOffers(os => os.map(o => o.id === id ? {
+    ...o,
+    [k]: v
+  } : o));
+  const addOffer = () => setOffers(os => {
+    const id = Math.max(0, ...os.map(o => o.id)) + 1;
+    return [...os, {
+      id,
+      name: `Offer ${os.length + 1}`,
+      engagement: "pfa",
+      basis: "monthly",
+      amount: 5000,
+      currency: "EUR",
+      isNet: false,
+      hoursPerWeek: 40,
+      ptoDays: 20,
+      bonus: 0,
+      mealTicket: 0,
+      benefitsMonthly: 0,
+      color: PALETTE[os.length % PALETTE.length]
+    }];
+  });
+  const dupOffer = o => setOffers(os => {
+    const id = Math.max(0, ...os.map(x => x.id)) + 1;
+    return [...os, {
+      ...o,
+      id,
+      name: o.name + " copy",
+      color: PALETTE[os.length % PALETTE.length]
+    }];
+  });
+  const delOffer = id => setOffers(os => os.length > 1 ? os.filter(o => o.id !== id) : os);
+  const rows = [{
+    l: "Days you actually work",
+    f: r => `${r.daysWorked}`,
+    sub: null
+  }, {
+    l: "Annual gross",
+    f: r => eur(r.grossEUR),
+    sub: r => ron(r.grossEUR * eurRon)
+  }, {
+    l: "Lost to unpaid leave",
+    f: r => r.unpaidLossEUR > 0.5 ? "−" + eur(r.unpaidLossEUR) : "covered",
+    dim: r => r.unpaidLossEUR <= 0.5
+  }, {
+    l: "Contributions + tax",
+    f: r => "−" + eur(r.casEUR + r.cassEUR + r.taxEUR)
+  }, {
+    l: "Business costs",
+    f: r => r.expensesEUR > 0 ? "−" + eur(r.expensesEUR) : "—",
+    dim: r => r.expensesEUR === 0
+  }, {
+    l: "Meal tickets + perks",
+    f: r => r.ticketsNetEUR + r.benefitsEUR > 0.5 ? "+" + eur(r.ticketsNetEUR + r.benefitsEUR) : "—",
+    dim: r => r.ticketsNetEUR + r.benefitsEUR <= 0.5
+  }];
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "#F8FAFC",
+      fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif"
+    },
+    className: "min-h-screen p-3 sm:p-5 pb-12"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "max-w-5xl mx-auto"
+  }, /*#__PURE__*/React.createElement("header", {
+    className: "pt-4 pb-5 flex flex-wrap items-end justify-between gap-3"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-1"
+  }, "Romania · fiscal year 2026"), /*#__PURE__*/React.createElement("h1", {
+    className: "text-[26px] leading-none font-black text-slate-900 tracking-tight"
+  }, "Offer normalizer"), /*#__PURE__*/React.createElement("p", {
+    className: "text-sm text-slate-500 mt-1.5"
+  }, "Every contract shape reduced to one number: what reaches your account.")), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-1.5 text-xs"
+  }, [["€/lei", eurRon, setEurRon, 0.001], ["€/$", eurUsd, setEurUsd, 0.001], ["€/£", eurGbp, setEurGbp, 0.001]].map(([lab, val, set, st]) => /*#__PURE__*/React.createElement("div", {
+    key: lab,
+    className: "flex items-center rounded-lg border border-slate-200 bg-white overflow-hidden"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "px-1.5 py-1 text-[10px] font-bold text-slate-400 bg-slate-50 border-r border-slate-200"
+  }, lab), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    value: val,
+    step: st,
+    onChange: e => {
+      set(parseFloat(e.target.value) || 0);
+      setFx(s => ({
+        ...s,
+        date: null,
+        src: null
+      }));
+    },
+    className: "w-14 px-1.5 py-1 text-xs font-bold text-slate-700 outline-none tabular-nums"
+  }))), /*#__PURE__*/React.createElement("button", {
+    onClick: loadFx,
+    disabled: fx.loading,
+    className: "px-2 py-1.5 rounded-lg text-xs font-bold text-slate-600 bg-white border border-slate-200 hover:border-slate-400 disabled:opacity-40"
+  }, fx.loading ? "…" : "↻"))), fx.date && !fx.error && /*#__PURE__*/React.createElement("div", {
+    className: "mb-3 text-[11px] text-slate-400"
+  }, "Rates from ", fx.src, ", ", fx.date, ". Overwrite any field to use your own."), fx.error && /*#__PURE__*/React.createElement("div", {
+    className: "mb-3 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2"
+  }, fx.error, " ", /*#__PURE__*/React.createElement("a", {
+    href: "https://www.bnr.ro/Cursuri-de-schimb--1224.aspx",
+    target: "_blank",
+    rel: "noreferrer",
+    className: "underline font-semibold"
+  }, "BNR reference rate")), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mb-4"
+  }, offers.map((o, i) => {
+    const r = results[i];
+    const isPfa = o.engagement === "pfa";
+    const isBest = i === bestIdx;
+    return /*#__PURE__*/React.createElement("div", {
+      key: o.id,
+      style: isBest ? {
+        borderColor: o.color.hex,
+        boxShadow: `0 0 0 2px ${o.color.soft}`
+      } : undefined,
+      className: "bg-white rounded-xl border border-slate-200 p-3.5 flex flex-col"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center gap-2 mb-3"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "w-2.5 h-2.5 rounded-full shrink-0",
+      style: {
+        background: o.color.hex
+      }
+    }), /*#__PURE__*/React.createElement("input", {
+      value: o.name,
+      onChange: e => patch(o.id, "name", e.target.value),
+      className: "flex-1 min-w-0 text-sm font-bold text-slate-800 bg-transparent outline-none focus:bg-slate-50 rounded px-1 -ml-1"
+    }), /*#__PURE__*/React.createElement("button", {
+      onClick: () => dupOffer(o),
+      title: "Duplicate",
+      className: "text-slate-300 hover:text-slate-600 text-xs font-bold px-1"
+    }, "⧉"), /*#__PURE__*/React.createElement("button", {
+      onClick: () => delOffer(o.id),
+      title: "Remove",
+      disabled: offers.length < 2,
+      className: "text-slate-300 hover:text-rose-500 text-sm font-bold px-1 disabled:opacity-20"
+    }, "×")), /*#__PURE__*/React.createElement("div", {
+      className: "mb-2.5"
+    }, /*#__PURE__*/React.createElement(Seg, {
+      accent: o.color.hex,
+      value: o.engagement,
+      onChange: v => patch(o.id, "engagement", v),
+      options: [{
+        v: "pfa",
+        l: "B2B / PFA"
+      }, {
+        v: "cim",
+        l: "Employment"
+      }]
+    })), isPfa && /*#__PURE__*/React.createElement("div", {
+      className: "mb-2.5"
+    }, /*#__PURE__*/React.createElement(Seg, {
+      accent: o.color.hex,
+      value: o.basis,
+      onChange: v => patch(o.id, "basis", v),
+      options: [{
+        v: "hourly",
+        l: "Hourly"
+      }, {
+        v: "daily",
+        l: "Daily"
+      }, {
+        v: "monthly",
+        l: "Monthly"
+      }]
+    })), /*#__PURE__*/React.createElement("label", {
+      className: "block mb-2.5"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "text-[10px] font-semibold text-slate-500 uppercase tracking-[0.12em] mb-1 block"
+    }, isPfa ? {
+      hourly: "Rate per hour",
+      daily: "Rate per day",
+      monthly: "Monthly invoice"
+    }[o.basis] : o.isNet ? "Monthly salary — net" : "Monthly salary — gross"), /*#__PURE__*/React.createElement("div", {
+      className: "flex items-stretch rounded-lg border border-slate-200 bg-white overflow-hidden focus-within:border-slate-400"
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "number",
+      value: o.amount,
+      step: o.basis === "hourly" ? 0.5 : 100,
+      onChange: e => patch(o.id, "amount", parseFloat(e.target.value) || 0),
+      style: {
+        color: o.color.hex
+      },
+      className: "flex-1 w-full min-w-0 px-2.5 py-1.5 text-base font-black bg-transparent outline-none tabular-nums"
+    }), /*#__PURE__*/React.createElement("select", {
+      value: o.currency,
+      onChange: e => patch(o.id, "currency", e.target.value),
+      className: "px-1.5 text-[11px] font-bold text-slate-600 bg-slate-50 border-l border-slate-200 outline-none cursor-pointer"
+    }, /*#__PURE__*/React.createElement("option", null, "EUR"), /*#__PURE__*/React.createElement("option", null, "USD"), /*#__PURE__*/React.createElement("option", null, "GBP"), /*#__PURE__*/React.createElement("option", null, "RON")))), !isPfa && /*#__PURE__*/React.createElement("div", {
+      className: "mb-2.5"
+    }, /*#__PURE__*/React.createElement(Seg, {
+      accent: o.color.hex,
+      value: o.isNet ? "net" : "gross",
+      onChange: v => patch(o.id, "isNet", v === "net"),
+      options: [{
+        v: "gross",
+        l: "Quoted gross"
+      }, {
+        v: "net",
+        l: "Quoted net"
+      }]
+    })), /*#__PURE__*/React.createElement("div", {
+      className: "grid grid-cols-2 gap-x-2"
+    }, /*#__PURE__*/React.createElement(Field, {
+      label: "Paid days off",
+      value: o.ptoDays,
+      onChange: v => patch(o.id, "ptoDays", v),
+      suffix: "days",
+      max: 60,
+      accent: o.color.hex
+    }), /*#__PURE__*/React.createElement(Field, {
+      label: "Hours / week",
+      value: o.hoursPerWeek,
+      onChange: v => patch(o.id, "hoursPerWeek", v),
+      suffix: "h",
+      min: 1,
+      max: 60,
+      accent: o.color.hex
+    }), /*#__PURE__*/React.createElement(Field, {
+      label: "Annual bonus",
+      value: o.bonus,
+      onChange: v => patch(o.id, "bonus", v),
+      suffix: o.currency,
+      step: 500,
+      accent: o.color.hex
+    }), isPfa ? /*#__PURE__*/React.createElement(Field, {
+      label: "Perks / month",
+      value: o.benefitsMonthly,
+      onChange: v => patch(o.id, "benefitsMonthly", v),
+      suffix: "€",
+      step: 10,
+      accent: o.color.hex
+    }) : /*#__PURE__*/React.createElement(Field, {
+      label: "Meal ticket",
+      value: o.mealTicket,
+      onChange: v => patch(o.id, "mealTicket", v),
+      suffix: "lei/day",
+      hint: `max ${TICKET_MAX}`,
+      max: TICKET_MAX,
+      accent: o.color.hex
+    })), !isPfa && /*#__PURE__*/React.createElement(Field, {
+      label: "Other perks / month",
+      value: o.benefitsMonthly,
+      onChange: v => patch(o.id, "benefitsMonthly", v),
+      suffix: "€",
+      step: 10,
+      hint: "medical, gym…",
+      accent: o.color.hex
+    }), /*#__PURE__*/React.createElement("div", {
+      className: "mt-auto pt-3"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "rounded-lg px-3 py-2.5",
+      style: {
+        background: o.color.soft
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "text-[10px] font-bold uppercase tracking-[0.12em] mb-0.5",
+      style: {
+        color: o.color.hex,
+        opacity: .75
+      }
+    }, "Take-home / month"), /*#__PURE__*/React.createElement("div", {
+      className: "text-xl font-black tabular-nums leading-none",
+      style: {
+        color: o.color.hex
+      }
+    }, ron(r.monthlyRON)), /*#__PURE__*/React.createElement("div", {
+      className: "text-[11px] font-semibold tabular-nums mt-1",
+      style: {
+        color: o.color.hex,
+        opacity: .7
+      }
+    }, eur(r.monthlyEUR), " · ", eur(r.perHour, 1), "/worked hour")), !isBest && best && /*#__PURE__*/React.createElement("div", {
+      className: "mt-1.5 text-[11px] text-slate-500 leading-snug"
+    }, "Needs ", /*#__PURE__*/React.createElement("span", {
+      className: "font-bold text-slate-700 tabular-nums"
+    }, Math.round(solveAmount(o, globals, metric(best))).toLocaleString("ro-RO"), " ", o.currency), " ", isPfa ? {
+      hourly: "/hr",
+      daily: "/day",
+      monthly: "/mo"
+    }[o.basis] : "/mo", " to match the leader.")));
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: addOffer,
+    className: "rounded-xl border-2 border-dashed border-slate-200 text-slate-400 hover:border-slate-400 hover:text-slate-600 transition-colors min-h-[120px] flex flex-col items-center justify-center gap-1"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-xl leading-none"
+  }, "+"), /*#__PURE__*/React.createElement("span", {
+    className: "text-xs font-bold"
+  }, "Add an offer"))), /*#__PURE__*/React.createElement("div", {
+    className: "bg-white rounded-xl border border-slate-200 p-4 mb-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-baseline justify-between mb-3 flex-wrap gap-2"
+  }, /*#__PURE__*/React.createElement("h2", {
+    className: "text-xs font-bold text-slate-500 uppercase tracking-[0.14em]"
+  }, "Your assumptions"), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] font-semibold text-slate-400 uppercase tracking-wider"
+  }, "PFA tax"), /*#__PURE__*/React.createElement("div", {
+    className: "w-44"
+  }, /*#__PURE__*/React.createElement(Seg, {
+    accent: "#334155",
+    value: pfaMode,
+    onChange: setPfaMode,
+    options: [{
+      v: "detailed",
+      l: "2026 rules"
+    }, {
+      v: "flat",
+      l: "Flat %"
+    }]
+  })))), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-3"
+  }, /*#__PURE__*/React.createElement(Field, {
+    label: "Working days / yr",
+    value: workDays,
+    onChange: setWorkDays,
+    suffix: "days",
+    min: 200,
+    max: 261,
+    hint: "RO ≈ 248"
+  }), /*#__PURE__*/React.createElement(Field, {
+    label: "Holiday you take",
+    value: vacationDays,
+    onChange: setVacationDays,
+    suffix: "days",
+    max: 60
+  }), /*#__PURE__*/React.createElement(Field, {
+    label: "Sick days expected",
+    value: sickDays,
+    onChange: setSickDays,
+    suffix: "days",
+    max: 40
+  }), /*#__PURE__*/React.createElement(Field, {
+    label: "PFA costs / month",
+    value: pfaExpensesMonthly,
+    onChange: setPfaExpensesMonthly,
+    suffix: "€",
+    step: 25,
+    hint: "accountant, kit"
+  }), pfaMode === "flat" ? /*#__PURE__*/React.createElement(Field, {
+    label: "Flat tax rate",
+    value: pfaFlat,
+    onChange: setPfaFlat,
+    suffix: "%",
+    step: 0.5,
+    min: 5,
+    max: 45
+  }) : /*#__PURE__*/React.createElement("div", {
+    className: "mb-2.5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] font-semibold text-slate-500 uppercase tracking-[0.12em] mb-1"
+  }, "Value of pension"), /*#__PURE__*/React.createElement("input", {
+    type: "range",
+    min: 0,
+    max: 100,
+    step: 5,
+    value: pensionWeight,
+    onChange: e => setPensionWeight(parseFloat(e.target.value)),
+    className: "w-full accent-slate-700 mt-2"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] text-slate-400 mt-0.5"
+  }, pensionWeight, "% of CAS counted as value"))), pfaMode === "detailed" && /*#__PURE__*/React.createElement("p", {
+    className: "text-[11px] text-slate-400 mt-1 leading-relaxed"
+  }, "PFA sistem real: CASS 10% on net income (floor ", ron(CASS_FLOOR_6), ", ceiling ", ron(CASS_CAP_72), "), CAS 25% on a capped base (", ron(CAS_FLOOR_12), " or ", ron(CAS_FLOOR_24), "), then 10% income tax on what remains. Employment: CAS 25% + CASS 10% + 10% tax, uncapped — the IT exemption ended with OUG 156/2024.")), /*#__PURE__*/React.createElement("div", {
+    className: "bg-white rounded-xl border border-slate-200 p-4 mb-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-baseline justify-between mb-3"
+  }, /*#__PURE__*/React.createElement("h2", {
+    className: "text-xs font-bold text-slate-500 uppercase tracking-[0.14em]"
+  }, "Where the gross goes"), /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] text-slate-400"
+  }, "bars scaled to the largest gross")), /*#__PURE__*/React.createElement(Waterfall, {
+    offers: offers,
+    results: results,
+    scale: scale
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "bg-white rounded-xl border border-slate-200 overflow-hidden mb-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "overflow-x-auto"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "w-full text-sm",
+    style: {
+      minWidth: 120 + offers.length * 130
+    }
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
+    className: "bg-slate-50 border-b border-slate-100"
+  }, /*#__PURE__*/React.createElement("th", {
+    className: "text-left px-3 py-2.5 text-[10px] font-bold text-slate-400 uppercase tracking-[0.12em]"
+  }, "Line"), offers.map(o => /*#__PURE__*/React.createElement("th", {
+    key: o.id,
+    className: "text-right px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] truncate",
+    style: {
+      color: o.color.hex
+    }
+  }, o.name)))), /*#__PURE__*/React.createElement("tbody", null, rows.map(row => /*#__PURE__*/React.createElement("tr", {
+    key: row.l,
+    className: "border-b border-slate-50"
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 text-xs text-slate-500 font-medium"
+  }, row.l), results.map((r, i) => /*#__PURE__*/React.createElement("td", {
+    key: i,
+    className: `px-3 py-2 text-right text-xs font-bold tabular-nums ${row.dim && row.dim(r) ? "text-slate-300" : "text-slate-700"}`
+  }, row.f(r), row.sub && /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] font-medium text-slate-400"
+  }, row.sub(r)))))), /*#__PURE__*/React.createElement("tr", {
+    className: "bg-slate-900"
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-3 text-xs font-bold text-slate-300"
+  }, "Take-home / year"), results.map((r, i) => /*#__PURE__*/React.createElement("td", {
+    key: i,
+    className: "px-3 py-3 text-right tabular-nums"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-sm font-black",
+    style: {
+      color: i === bestIdx ? offers[i].color.hex : "#94A3B8"
+    }
+  }, eur(r.takeHomeEUR)), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] font-semibold text-slate-500"
+  }, ron(r.annualRON))))), /*#__PURE__*/React.createElement("tr", {
+    className: "border-b border-slate-50"
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 text-xs text-slate-500 font-medium"
+  }, "Pension credited (CAS)"), results.map((r, i) => /*#__PURE__*/React.createElement("td", {
+    key: i,
+    className: "px-3 py-2 text-right text-xs font-bold tabular-nums text-slate-700"
+  }, eur(r.pensionEUR)))), /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 text-xs text-slate-500 font-medium"
+  }, "Take-home + ", pensionWeight, "% of pension"), results.map((r, i) => /*#__PURE__*/React.createElement("td", {
+    key: i,
+    className: "px-3 py-2 text-right text-xs font-black tabular-nums",
+    style: {
+      color: offers[i].color.hex
+    }
+  }, eur(r.valueEUR)))))))), best && /*#__PURE__*/React.createElement("div", {
+    className: "rounded-xl border p-4 mb-4",
+    style: {
+      background: offers[bestIdx].color.soft,
+      borderColor: offers[bestIdx].color.hex + "40"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap items-baseline justify-between gap-2 mb-1"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-base font-black",
+    style: {
+      color: offers[bestIdx].color.hex
+    }
+  }, offers[bestIdx].name, " leads"), /*#__PURE__*/React.createElement("div", {
+    className: "flex rounded-lg bg-white/70 p-0.5 gap-0.5"
+  }, [{
+    v: "take",
+    l: "By cash"
+  }, {
+    v: "value",
+    l: "By cash + pension"
+  }].map(t => /*#__PURE__*/React.createElement("button", {
+    key: t.v,
+    onClick: () => setRankBy(t.v),
+    style: rankBy === t.v ? {
+      background: offers[bestIdx].color.hex,
+      color: "#fff"
+    } : undefined,
+    className: `px-2.5 py-1 rounded-[6px] text-[10px] font-bold uppercase tracking-wider ${rankBy === t.v ? "" : "text-slate-500"}`
+  }, t.l)))), /*#__PURE__*/React.createElement("div", {
+    className: "text-sm text-slate-600"
+  }, results.length > 1 && (() => {
+    const sorted = [...results].sort((a, b) => metric(b) - metric(a));
+    const gap = metric(sorted[0]) - metric(sorted[1]);
+    const gapPct = metric(sorted[1]) > 0 ? gap / metric(sorted[1]) * 100 : 0;
+    return gapPct < 5 ? /*#__PURE__*/React.createElement(React.Fragment, null, "Only ", eur(gap), " (", pct(gapPct), ") ahead of the runner-up — that is inside the noise. Decide on the terms, not the money.") : /*#__PURE__*/React.createElement(React.Fragment, null, eur(gap), " a year clear of the runner-up (", pct(gapPct), "), or ", ron(gap * eurRon / 12), " a month.");
+  })())), /*#__PURE__*/React.createElement("div", {
+    className: "bg-white rounded-xl border border-slate-200 p-4"
+  }, /*#__PURE__*/React.createElement("h2", {
+    className: "text-xs font-bold text-slate-500 uppercase tracking-[0.14em] mb-3"
+  }, "What the numbers hide"), /*#__PURE__*/React.createElement("div", {
+    className: "grid sm:grid-cols-2 gap-x-6 gap-y-3"
+  }, [["Pension is the hidden transfer", "PFA caps CAS at a chosen base, so you keep more now and credit far less to your pension. Employment pays 25% on the whole gross. Set the pension slider to 0 and 100 — if the ranking flips, the decision is about how much you trust the state pension, not about the offers."], ["A day off is not free on B2B", "Employment pays your holiday, your public holidays and your sick days. A day-rate contract pays none of them. Raise 'sick days expected' from 5 to 15 and watch which offers move."], ["Currency is an unnegotiated pay cut", "A USD or GBP contract re-prices itself every month. Move the FX field 5% against you and see the damage — then decide whether the premium over a EUR offer actually covers that risk."], ["Meal tickets beat salary per leu", "Tickets carry 10% tax + 10% CASS and no CAS, so you keep 80% against 58.5% on salary. 45 lei/day is roughly 8.500 lei of nominal value a year."], ["Deductible costs are the lever you own", "Accountant, hardware, licences, courses and coworking cut taxable income directly. That field is the only number here you can move without anyone's permission."], ["Gross is not a comparable unit", "An hourly rate, a monthly invoice and a gross salary are three different promises. The only honest comparison is the bottom row: what lands in your account."]].map(([t, b]) => /*#__PURE__*/React.createElement("div", {
+    key: t
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs font-bold text-slate-800 mb-0.5"
+  }, t), /*#__PURE__*/React.createElement("div", {
+    className: "text-xs text-slate-500 leading-relaxed"
+  }, b))))), /*#__PURE__*/React.createElement("p", {
+    className: "text-center text-[11px] text-slate-300 mt-6"
+  }, "Estimates for planning, not filings. Confirm PFA treatment and any offer's fine print with your accountant.")));
+}
+</script>
+<script>
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    React.createElement(OfferComparator)
+  );
+</script>
+</body>
+</html>
