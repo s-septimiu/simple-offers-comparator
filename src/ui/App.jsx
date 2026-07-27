@@ -10,7 +10,7 @@ import { solveAmount } from '../engine/solve.js'
 import { warningsFor } from '../engine/warnings.js'
 import { fetchRates, fallbackRates } from '../engine/fx.js'
 import { encodeState, decodeState } from '../engine/share.js'
-import { defaultOffers, defaultGlobals, nextColor, OFFER_TEMPLATE, accentVars } from '../defaults.js'
+import { defaultOffers, defaultGlobals, nextColor, OFFER_TEMPLATE, accentVars, defaultPtoDays } from '../defaults.js'
 import { eur, ron, pct, num } from '../format.js'
 import {
   CASS_FLOOR_6, CASS_CAP_72, CAS_FLOOR_12, CAS_FLOOR_24,
@@ -93,6 +93,22 @@ export default function App() {
 
   const patch = (id, k, v) => setOffers((os) => os.map((o) => (o.id === id ? { ...o, [k]: v } : o)))
 
+  // Switching contract type brings that type's standard paid leave with it —
+  // but only while the field still holds the default for the type being left.
+  // Once someone has typed their own number, it survives the switch.
+  const setEngagement = (id, engagement) =>
+    setOffers((os) =>
+      os.map((o) =>
+        o.id === id
+          ? {
+              ...o,
+              engagement,
+              ptoDays: o.ptoDays === defaultPtoDays(o.engagement) ? defaultPtoDays(engagement) : o.ptoDays,
+            }
+          : o,
+      ),
+    )
+
   const addOffer = () =>
     setOffers((os) => [
       ...os,
@@ -166,6 +182,7 @@ export default function App() {
               isBest={i === bestIdx}
               canDelete={offers.length > 1}
               patch={(k, v) => patch(o.id, k, v)}
+              setEngagement={(v) => setEngagement(o.id, v)}
               onDuplicate={() => dupOffer(o)}
               onDelete={() => delOffer(o.id)}
               solveHint={

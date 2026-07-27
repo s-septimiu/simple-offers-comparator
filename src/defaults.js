@@ -6,10 +6,13 @@
  * they exercise every engagement type and most of the timeline machinery:
  * opening the page IS the feature tour.
  *
- *   1. PFA hourly in EUR, no paid leave        → the day-off-is-not-free case
- *   2. SRL micro monthly in EUR                → 1% + mandatory salary + dividends
- *   3. CIM in RON, tickets + 13th + probation  → the full payroll stack
- *   4. SRL sistem real, above the micro ceiling → 16% on profit
+ *   1. PFA hourly in EUR                        → the day-off-is-not-free case
+ *   2. SRL sistem real, above the micro ceiling → 16% on profit
+ *   3. SRL micro monthly in EUR                 → 1% + mandatory salary + dividends
+ *   4. CIM in RON, tickets + 13th + probation   → the full payroll stack
+ *
+ * The three B2B seeds carry no paid leave and the employment one carries the
+ * statutory 21 days — see DEFAULT_PTO_DAYS.
  */
 
 /**
@@ -43,6 +46,20 @@ export function nextColor(offers) {
   return PALETTE.find((c) => !taken.has(c.name)) ?? PALETTE[offers.length % PALETTE.length]
 }
 
+/**
+ * Paid leave belongs to the contract type, not to the person. Employment carries
+ * the statutory 21 days; on B2B a day off is a day unbilled until you negotiate
+ * otherwise, so every other type starts at zero.
+ */
+export const DEFAULT_PTO_DAYS = {
+  pfa: 0,
+  'srl-micro': 0,
+  'srl-real': 0,
+  cim: 21,
+}
+
+export const defaultPtoDays = (engagement) => DEFAULT_PTO_DAYS[engagement] ?? 0
+
 export const OFFER_TEMPLATE = {
   engagement: 'pfa',
   basis: 'monthly',
@@ -51,7 +68,7 @@ export const OFFER_TEMPLATE = {
   isNet: false,
   hoursPerWeek: 40,
   daysPerWeek: 5,
-  ptoDays: 20,
+  ptoDays: DEFAULT_PTO_DAYS.pfa, // new offers start as PFA
   bonus: 0,
   mealTicket: 0,
   benefitsMonthly: 0,
@@ -91,33 +108,6 @@ export function defaultOffers() {
     {
       ...OFFER_TEMPLATE,
       id: 2,
-      name: 'SRL micro',
-      engagement: 'srl-micro',
-      basis: 'monthly',
-      amount: 7000,
-      currency: 'EUR',
-      ptoDays: 15,
-      color: PALETTE[1],
-    },
-    {
-      ...OFFER_TEMPLATE,
-      id: 3,
-      name: 'Employment',
-      engagement: 'cim',
-      basis: 'monthly',
-      amount: 32000,
-      currency: 'RON',
-      ptoDays: 25,
-      mealTicket: 45,
-      benefitsMonthly: 40,
-      thirteenthSalaryMonths: 1,
-      probationMonths: 3,
-      probationPct: 90,
-      color: PALETTE[2],
-    },
-    {
-      ...OFFER_TEMPLATE,
-      id: 4,
       name: 'SRL profit tax',
       engagement: 'srl-real',
       basis: 'daily',
@@ -126,8 +116,35 @@ export function defaultOffers() {
       // question is which shape wins when the headline numbers are comparable.
       amount: 390,
       currency: 'EUR',
-      ptoDays: 10,
+      ptoDays: 0,
       contractMonths: 6,
+      color: PALETTE[1],
+    },
+    {
+      ...OFFER_TEMPLATE,
+      id: 3,
+      name: 'SRL micro',
+      engagement: 'srl-micro',
+      basis: 'monthly',
+      amount: 7000,
+      currency: 'EUR',
+      ptoDays: 0,
+      color: PALETTE[2],
+    },
+    {
+      ...OFFER_TEMPLATE,
+      id: 4,
+      name: 'Employment',
+      engagement: 'cim',
+      basis: 'monthly',
+      amount: 32000,
+      currency: 'RON',
+      ptoDays: 21,
+      mealTicket: 45,
+      benefitsMonthly: 40,
+      thirteenthSalaryMonths: 1,
+      probationMonths: 3,
+      probationPct: 90,
       color: PALETTE[3],
     },
   ]

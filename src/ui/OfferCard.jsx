@@ -20,7 +20,7 @@ const ADVANCED_FIELDS = [
 
 export default function OfferCard({
   offer, result, engagementResult, globals, warnings,
-  isBest, canDelete, patch, onDuplicate, onDelete, solveHint,
+  isBest, canDelete, patch, setEngagement, onDuplicate, onDelete, solveHint,
 }) {
   const o = offer
   const srl = isSrl(o.engagement)
@@ -85,11 +85,11 @@ export default function OfferCard({
           label="Contract type"
           accent={accent}
           value={o.engagement}
-          onChange={(v) => patch('engagement', v)}
+          onChange={setEngagement}
           options={[
             { v: 'pfa', l: 'PFA', title: ENGAGEMENT_DESCRIPTIONS.pfa },
-            { v: 'srl-micro', l: 'SRL 1%', title: ENGAGEMENT_DESCRIPTIONS['srl-micro'] },
             { v: 'srl-real', l: 'SRL 16%', title: ENGAGEMENT_DESCRIPTIONS['srl-real'] },
+            { v: 'srl-micro', l: 'SRL 1%', title: ENGAGEMENT_DESCRIPTIONS['srl-micro'] },
             { v: 'cim', l: 'Employed', title: ENGAGEMENT_DESCRIPTIONS.cim },
           ]}
         />
