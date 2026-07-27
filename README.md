@@ -1,6 +1,8 @@
-# Simple Offers Comparator
+# Romanian Offer Comparator
 
-A single HTML file that normalizes Romanian freelance and employment offers to the same unit — **what actually lands in your account** — so you can compare them directly regardless of contract type, currency, or how the number was quoted.
+Normalizes Romanian software development offers to the same unit — **what actually lands in your
+account** — so you can compare them directly regardless of contract type, currency, or how the
+number was quoted.
 
 **[→ Open the tool](https://romanian-simple-offers-comparator.netlify.app/)**
 
@@ -8,89 +10,127 @@ A single HTML file that normalizes Romanian freelance and employment offers to t
 
 ## What it handles
 
-Most offer comparators stop at gross salary. This one doesn't. You can mix and match:
+Most offer comparators stop at gross salary. This one models all four structures a Romanian
+developer actually chooses between, and the edge cases that decide between them.
 
-- **Contract type** — B2B (PFA sistem real) or employment (CIM)
-- **Billing basis** — hourly, daily, or monthly
-- **Currency** — EUR, USD, GBP, or RON
-- **Gross or net** — CIM salaries quoted as net are reverse-solved through the payroll stack
-- **Paid days off** — PTO that doesn't cover your actual holidays becomes a real cost
-- **Annual bonus** — one-time lump sums included in the annual total
-- **Meal tickets** — modeled at 2026 rates (45 lei/day, 80% net efficiency vs 58.5% on salary)
-- **Other perks** — monthly benefits added to the take-home
-- **Part-time** — hours per week adjusts the effective hourly rate
+**Contract types**
 
-You can add as many offers as you want. Each one gets a card. The comparison table and waterfall chart update live.
+| | Tax treatment |
+|---|---|
+| **PFA** (sistem real) | CASS 10% on net income between 6 and 72 minimum wages, CAS 25% on a stepped base, 10% income tax |
+| **SRL micro** | 1% of turnover, a mandatory minimum-wage employee, then 16% on dividends plus stepped CASS |
+| **SRL profit tax** | 16% on profit, then 16% on dividends plus stepped CASS. Required above €100.000 turnover |
+| **CIM** (employment) | CAS 25% + CASS 10% + 10% tax on the full gross, with the personal deduction |
+
+**Everything else you can vary**
+
+- **Billing basis** — hourly, daily or monthly, in EUR, USD, GBP or RON
+- **Gross or net** — net salary quotes are reverse-solved through the whole payroll stack
+- **Paid days off** — time off the contract does not cover becomes a real, priced cost
+- **Timeline** — probation at reduced pay, a raise at month N, a mid-year start, fixed terms
+- **Extras** — 13th salary, on-call, overtime, annual bonus, meal tickets, perks
+- **Part-time** — hours per week and days per week
+- **SRL levers** — your own salary and how much profit you distribute
+
+Add as many offers as you like. Every card, the comparison table and the waterfall update live.
+
+---
+
+## The things it gets right that are easy to get wrong
+
+**Thresholds are cliffs, not slopes.** CAS jumps by 12.150 lei the moment PFA income touches 12
+minimum wages. Dividend CASS jumps by 2.430 lei at 6. Earning one leu more can genuinely leave you
+poorer. The tool detects when you are sitting just the wrong side of one and tells you what dropping
+below it would be worth.
+
+**Take-home is therefore not monotonic in your rate.** The "what would this need to pay to match the
+leader?" solver copes with that, and will tell you when the answer is to ask for *less*.
+
+**Micro tax is charged on turnover, not profit.** Deductible costs do not reduce it at all.
+
+**Plafoane are per calendar year, not per rolling twelve months.** An engagement starting in
+September splits across two tax years, and each partial year is tested against the full annual
+thresholds independently — which can drop CAS to zero in both.
+
+**The personal deduction is a staircase.** It steps down every 50 lei of gross, and at each step net
+pay actually falls. A one-leu raise inside the grid can cost you 1,44 lei a month.
+
+**Net salary quotes cannot be inverted with a constant.** `net / 0.585` is only valid where the
+personal deduction is zero, so the inversion is solved numerically.
 
 ---
 
 ## Tax model — Romania 2026
 
-**PFA (B2B):**
-- CASS 10% on annual net income, floored at 6 minimum wages (24,300 RON), capped at 72 minimum wages (291,600 RON)
-- CAS 25% on a capped base — 12 minimum wages if net income is between 48,600–97,200 RON, 24 minimum wages above that, zero below the floor
-- Income tax 10% on what remains after CAS and CASS
-- Alternatively, use the flat-rate override if you know your effective rate
+All constants live in [`src/fiscal/constants.js`](src/fiscal/constants.js), with the reasoning and
+sources beside them. **That is the only file you need to edit when the law changes.**
 
-**CIM (employment):**
-- CAS 25% + CASS 10% on full gross, uncapped for salary income
-- Income tax 10% on the remainder
-- The IT income-tax exemption was eliminated by OUG 156/2024 effective January 2025 — the toggle is there only for modeling the old regime
+Key values for 2026: minimum wage 4.050 lei to 30 June and 4.325 lei from 1 July; annual plafoane
+pinned to the 1 January value; micro tax 1% with a €100.000 ceiling; dividends 16%; meal tickets
+capped at 45 lei/worked day and 80% net-efficient.
 
-**Meal tickets:**
-- Taxed at CASS 10% + income tax 10%, CAS-exempt
-- Net efficiency: ~80% vs 58.5% on equivalent salary
-- Cap: 45 lei/worked day (Legea 201/2025, valid through September 2026)
+> **A documented ambiguity.** Sources disagree on whether the CAS/CASS plafoane follow the July
+> minimum-wage increase mid-year. This tool takes the 1 January pinning as the safe reading of Cod
+> fiscal art. 170/174 and says so in the footer. If ANAF clarifies otherwise, change
+> `PLAFON_ANCHOR` and everything else follows.
 
-Exchange rates (EUR/RON, EUR/USD, EUR/GBP) are fetched live on load from four independent sources. You can override any of them manually.
+Exchange rates are fetched live from four independent sources on load. If all of them fail, the tool
+falls back to dated constants and **labels them as not live** rather than passing them off as
+current. Any rate can be overridden by hand.
 
 ---
 
-## How to use
+## Privacy and state
 
-**Online:** visit the link above. Nothing to install.
+Everything runs in your browser. Nothing is sent anywhere, and **nothing is stored** — no
+localStorage, no cookies, no analytics. Every visitor gets the same starting state.
 
-**Self-host:** download `index.html`, put it in a folder, open it in a browser. Works offline for the calculator itself; rates fetch requires internet.
+That means a refresh loses your work, so there are two ways to keep it:
 
-**Deploy your own copy:**
-1. Fork this repo
-2. Connect it to Netlify (or any static host)
-3. Done — Netlify will deploy automatically on every push
-
----
-
-## Keeping it current
-
-Romanian tax rules change frequently. The constants to update each fiscal year are at the top of `index.html`:
-
-```
-MW         — minimum wage (4,050 RON for 2026)
-TICKET_MAX — meal ticket ceiling (45 RON for 2026)
-CIM_NET_RATIO — net/gross ratio (0.585 for 2026 without IT exemption)
-TICKET_NET_RATIO — meal ticket net efficiency (0.80 for 2026)
-```
-
-If the IT exemption is reinstated or CAS/CASS rates change, update those constants and the inline documentation.
+- **Share link** — encodes the whole comparison into the URL and copies it to your clipboard
+- **Print / PDF** — a real print stylesheet that expands every derivation, drops the interactive
+  chrome, and keeps each offer on one page
 
 ---
 
-## Tech
+## Development
 
-Single HTML file. React 18 and ReactDOM load from unpkg CDN. Tailwind CSS loads from their CDN. The app code is pre-compiled JSX — no build step, no bundler, no Node required to run it.
-
-To rebuild from source after editing the JSX:
+The app is built from `src/` and shipped as **one self-contained `index.html`** — React and compiled
+Tailwind inlined, zero external assets. Download that file, open it from disk, and it works offline;
+only the exchange-rate fetch degrades.
 
 ```bash
 npm install
-npx babel src/comparator.jsx \
-  --no-babelrc \
-  --plugins '[["@babel/plugin-transform-react-jsx", {"runtime":"classic"}]]' \
-  --out-file compiled.js
-# then replace the app script block in index.html with compiled.js content
+npm run dev      # dev server
+npm test         # tax engine test suite
+npm run build    # emits dist/ and refreshes the committed index.html
 ```
+
+```
+src/
+  fiscal/         constants.js ← edit here for law changes
+                  pfa.js  cim.js  srl.js
+  engine/         compute.js  schedule.js  solve.js  numeric.js
+                  fx.js  warnings.js  share.js
+  ui/             App.jsx and components
+  index.html      the Vite entry (NOT the published file)
+index.html        the committed build output — generated, do not edit
+```
+
+`index.html` at the repo root is generated. CI rebuilds and fails if the committed bundle has
+drifted from `src/`, or if it ever references an external asset.
+
+**Tests are the point, not a formality.** The suite pins every plafon boundary from both sides, the
+personal-deduction grid against its published table, the accounting identity that every leu of SRL
+turnover is accounted for exactly once, net↔gross round trips inside the deduction staircase, and
+the share-link round trip. If you change a constant, the tests will tell you exactly what moved.
+
+**Deploy:** fork, connect to Netlify, done. Build command `npm run build`, publish directory `dist`.
+Or serve the committed `index.html` from any static host.
 
 ---
 
 ## License
 
-MIT — do whatever you want with it. If you find a tax modeling error, open an issue.
+MIT — do whatever you want with it. If you find a tax modelling error, open an issue; a failing test
+case is the most useful possible bug report.

@@ -1,0 +1,28 @@
+{
+  "name": "offer-comparator",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Normalizes Romanian software development offers to one comparable number: annual take-home.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node scripts/emit-bundle.mjs",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run test && npm run build"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.14",
+    "@vitejs/plugin-react": "^5.0.4",
+    "tailwindcss": "^4.1.14",
+    "vite": "^7.1.9",
+    "vite-plugin-singlefile": "^2.3.0",
+    "vitest": "^3.2.4"
+  }
+}

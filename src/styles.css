@@ -1,0 +1,179 @@
+@import 'tailwindcss';
+
+/* ── Theme tokens ──────────────────────────────────────────────────────────
+   Two surfaces and three text weights are enough for this UI; keeping the
+   palette this small is what makes the dark theme fall out almost for free. */
+@theme {
+  --color-surface: #ffffff;
+  --color-canvas: #f8fafc;
+  --color-line: #e2e8f0;
+}
+
+:root {
+  color-scheme: light dark;
+  --canvas: #f8fafc;
+  --surface: #ffffff;
+  --line: #e2e8f0;
+  --line-soft: #f1f5f9;
+  --ink: #0f172a;
+  --ink-2: #475569;
+  --ink-3: #94a3b8;
+  --inverse: #0f172a;
+  --inverse-ink: #cbd5e1;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #0b1120;
+    --surface: #131c31;
+    --line: #253049;
+    --line-soft: #1b2438;
+    --ink: #f1f5f9;
+    --ink-2: #b6c2d6;
+    --ink-3: #7c8aa5;
+    --inverse: #020617;
+    --inverse-ink: #cbd5e1;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Surface primitives, so components don't each re-derive the theme. */
+.surface { background: var(--surface); border-color: var(--line); }
+.canvas { background: var(--canvas); }
+.ink { color: var(--ink); }
+.ink-2 { color: var(--ink-2); }
+.ink-3 { color: var(--ink-3); }
+.rule { border-color: var(--line); }
+.rule-soft { border-color: var(--line-soft); }
+
+/* ── Severity notices ──────────────────────────────────────────────────────
+   Fixed light backgrounds would sit as bright patches on a dark card, so each
+   severity carries a dark-theme pair rather than being tinted at one weight. */
+.sev { border-width: 1px; }
+.sev-error { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+.sev-warn { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+.sev-info { background: var(--line-soft); border-color: var(--line); color: var(--ink-2); }
+
+@media (prefers-color-scheme: dark) {
+  .sev-error { background: #2a1416; border-color: #5b2327; color: #fca5a5; }
+  .sev-warn { background: #2a2011; border-color: #5a4318; color: #fcd34d; }
+}
+
+/* The "n/a" badge on an option the user cannot lawfully take. Paired like the
+   severities above: the whole point of the badge is that it is READ, so a tint
+   picked for a white card must not wash out on a dark one. */
+.chip-na { background: #fee2e2; color: #b91c1c; }
+
+@media (prefers-color-scheme: dark) {
+  .chip-na { background: #3a1a1d; color: #fca5a5; }
+}
+
+/* ── Accent panels ─────────────────────────────────────────────────────────
+   Per-offer colour is passed in as custom properties so the same element can
+   resolve a pale tint in light mode and a deep one in dark, which an inline
+   style alone cannot express. */
+.accent-panel { background: var(--a-soft); color: var(--a-deep); }
+.accent-panel-border { border-color: color-mix(in srgb, var(--a) 30%, transparent); }
+
+@media (prefers-color-scheme: dark) {
+  .accent-panel {
+    background: color-mix(in srgb, var(--a) 20%, var(--surface));
+    color: var(--a-light);
+  }
+}
+
+/* Strip the spinners; they add noise and steal width on narrow cards. */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] { -moz-appearance: textfield; }
+
+/* A visible, consistent focus ring — the previous build had none at all,
+   which made the whole tool unusable from the keyboard. */
+:where(button, input, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* ── Print ─────────────────────────────────────────────────────────────────
+   The PDF is the only way a user keeps their configuration, so it has to be a
+   real document: every drill-down expanded, no interactive chrome, and no
+   offer torn across a page boundary. */
+@media print {
+  @page { margin: 14mm; }
+
+  :root {
+    --canvas: #ffffff;
+    --surface: #ffffff;
+    --line: #cbd5e1;
+    --line-soft: #e2e8f0;
+    --ink: #000000;
+    --ink-2: #333333;
+    --ink-3: #666666;
+  }
+
+  body { background: #fff; }
+
+  .no-print { display: none !important; }
+  .print-only { display: block !important; }
+
+  /* Force every collapsible section open — a printed page cannot be clicked. */
+  details { display: block !important; }
+  details > summary { display: none !important; }
+  details > *:not(summary) { display: revert !important; }
+
+  .print-avoid-break { break-inside: avoid; page-break-inside: avoid; }
+  .print-page-break { break-before: page; page-break-before: always; }
+
+  /* Grids collapse to two columns so cards stay legible on A4. */
+  .print-grid-2 { display: grid !important; grid-template-columns: 1fr 1fr !important; }
+
+  /* ── Tables must never be clipped ────────────────────────────────────────
+     On screen the comparison table scrolls horizontally inside its container
+     and carries an inline min-width that grows with the offer count. Paper
+     cannot scroll: Chrome clips the overflow instead, so past about five
+     offers the rightmost columns simply vanish from the PDF — silent data
+     loss in the one artefact the user keeps.
+
+     Overriding the inline min-width needs !important; a CSS !important
+     declaration outranks an inline style that lacks one. Fixed layout plus
+     tighter type then lets the columns compress instead of overflowing. */
+  .overflow-x-auto { overflow: visible !important; }
+
+  table {
+    min-width: 0 !important;
+    width: 100% !important;
+    table-layout: fixed;
+  }
+
+  table th,
+  table td {
+    padding: 3px 4px !important;
+    font-size: 8.5px !important;
+    overflow-wrap: anywhere;
+  }
+
+  /* Sticky positioning is meaningless on paper and misrenders across pages. */
+  .sticky { position: static !important; }
+
+  thead { display: table-header-group; } /* repeat headers across pages */
+  tr { break-inside: avoid; }
+
+  a[href^='http']::after { content: ' (' attr(href) ')'; font-size: 9px; color: #666; }
+}
+
+.print-only { display: none; }
