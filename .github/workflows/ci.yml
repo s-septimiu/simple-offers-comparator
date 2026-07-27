@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Tax engine tests
+        run: npm test
+
+      - name: Build the single-file bundle
+        run: npm run build
+
+      # index.html at the repo root is generated from src/. If a change to src/
+      # was committed without rebuilding, the published file silently lags
+      # behind the tested code — which for a tax calculator means shipping
+      # numbers nobody verified.
+      - name: Check the committed bundle matches src/
+        run: |
+          if ! git diff --exit-code -- index.html; then
+            echo "::error::index.html is out of date. Run 'npm run build' and commit the result."
+            exit 1
+          fi
+
+      # The whole point of the single-file build is that it works offline.
+      - name: Check the bundle has no external assets
+        run: |
+          if grep -qE '<(script|link)[^>]+(src|href)="https?:' index.html; then
+            echo "::error::The bundle references an external asset. It must be self-contained."
+            grep -nE '<(script|link)[^>]+(src|href)="https?:' index.html
+            exit 1
+          fi
