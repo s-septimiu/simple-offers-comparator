@@ -5,12 +5,16 @@ import { useNumericText } from './useNumericText.js'
 import OfferCard from './OfferCard.jsx'
 import Waterfall from './Waterfall.jsx'
 import ComparisonTable from './ComparisonTable.jsx'
+import Panel, { Disclosure } from './Panel.jsx'
 import { compute, computeEngagement } from '../engine/compute.js'
 import { solveAmount } from '../engine/solve.js'
 import { warningsFor } from '../engine/warnings.js'
 import { fetchRates, fallbackRates } from '../engine/fx.js'
 import { encodeState, decodeState } from '../engine/share.js'
-import { defaultOffers, defaultGlobals, nextColor, OFFER_TEMPLATE, accentVars, defaultPtoDays } from '../defaults.js'
+import {
+  defaultOffers, defaultGlobals, nextColor, OFFER_TEMPLATE, accentVars, defaultPtoDays,
+  ENGAGEMENT_LABELS,
+} from '../defaults.js'
 import { eur, ron, pct, num } from '../format.js'
 import {
   CASS_FLOOR_6, CASS_CAP_72, CAS_FLOOR_12, CAS_FLOOR_24,
@@ -80,12 +84,26 @@ export default function App() {
 
   const metric = useCallback((r) => (rankBy === 'take' ? r.takeHomeEUR : r.valueEUR), [rankBy])
 
-  const bestIdx = useMemo(() => {
-    if (!results.length) return -1
-    let best = 0
-    for (let i = 1; i < results.length; i++) if (metric(results[i]) > metric(results[best])) best = i
-    return best
-  }, [results, metric])
+  /* Offer indices, best first. The header badge, the summary band and the
+   * runner-up gap all used to derive their own ordering — three sorts of the
+   * same array that agreed only as long as nobody touched one of them. This is
+   * the single ordering the whole page reads from.
+   *
+   * Array.prototype.sort is stable, so ties keep the order the offers were
+   * entered in, which is what the previous strict-`>` scan did. */
+  const order = useMemo(
+    () => results.map((_, i) => i).sort((a, b) => metric(results[b]) - metric(results[a])),
+    [results, metric],
+  )
+
+  const bestIdx = order.length ? order[0] : -1
+
+  /** rank[i] is the 1-based position of offer i, for the badge on its card. */
+  const rank = useMemo(() => {
+    const out = []
+    order.forEach((offerIdx, position) => (out[offerIdx] = position + 1))
+    return out
+  }, [order])
 
   const scale = useMemo(() => Math.max(...results.map((r) => r.barTotalRON), 1), [results])
 
@@ -162,70 +180,110 @@ export default function App() {
 
   return (
     <div className="min-h-screen p-3 sm:p-5 pb-12">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-6xl mx-auto space-y-4">
         <Header
           eurRon={eurRon} eurUsd={eurUsd} eurGbp={eurGbp}
           setEurRon={setRate(setEurRon)} setEurUsd={setRate(setEurUsd)} setEurGbp={setRate(setEurGbp)}
           fx={fx} loadFx={loadFx} share={share} copied={copied} reset={reset}
         />
 
-        {/* ── Offer cards ─────────────────────────────────────────────── */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mb-4 print-grid-2">
-          {offers.map((o, i) => (
-            <OfferCard
-              key={o.id}
-              offer={o}
-              result={results[i]}
-              engagementResult={engagementResults[i]}
-              globals={globals}
-              warnings={warnings[i]}
-              isBest={i === bestIdx}
-              canDelete={offers.length > 1}
-              patch={(k, v) => patch(o.id, k, v)}
-              setEngagement={(v) => setEngagement(o.id, v)}
-              onDuplicate={() => dupOffer(o)}
-              onDelete={() => delOffer(o.id)}
-              solveHint={
-                i === bestIdx || !best ? null : <SolveHint offer={o} globals={globals} target={metric(best)} metric={metric} />
-              }
-            />
-          ))}
-
-          <button
-            onClick={addOffer}
-            className="no-print rounded-xl border-2 border-dashed rule ink-3 hover:ink-2 transition-colors min-h-[140px] flex flex-col items-center justify-center gap-1"
-          >
-            <span className="text-xl leading-none">+</span>
-            <span className="text-xs font-bold">Add an offer</span>
-          </button>
-        </div>
-
-        <Assumptions g={g} setG={setG} />
-
-        {/* ── Waterfall ───────────────────────────────────────────────── */}
-        <section className="surface rounded-xl border p-4 mb-4 print-avoid-break">
-          <div className="flex items-baseline justify-between mb-3 gap-2 flex-wrap">
-            <h2 className="text-xs font-bold ink-3 uppercase tracking-[0.14em]">Where the gross goes</h2>
-            <span className="text-[10px] ink-3">bars scaled to the largest gross</span>
-          </div>
-          <Waterfall offers={offers} results={results} scale={scale} eurRon={eurRon} />
-        </section>
-
-        <ComparisonTable
-          offers={offers} results={results} engagementResults={engagementResults}
-          bestIdx={bestIdx} pensionWeight={g.pensionWeight} metric={metric}
-        />
-
+        {/* ── The finding, first ───────────────────────────────────────────
+            Deliberately above the offers rather than below the table, where it
+            used to sit. The verdict is the one thing every visitor came for,
+            and it was the last thing on the page — you had to scroll past four
+            editing forms, a chart and a fourteen-row table to learn which offer
+            won. Worse, the rank-by toggle lives here and changes the badge on
+            every card above it, so the control was below everything it
+            governed. Please do not "restore the reading order" by moving this
+            back under the table. */}
         {best && (
-          <Verdict
-            offers={offers} results={results} bestIdx={bestIdx}
-            rankBy={rankBy} setRankBy={setRankBy} metric={metric} eurRon={eurRon}
+          <Summary
+            offers={offers} results={results} order={order}
+            rankBy={rankBy} setRankBy={setRankBy} metric={metric}
           />
         )}
 
+        {/* ── Offer cards ─────────────────────────────────────────────── */}
+        <section>
+          <div className="flex items-baseline justify-between gap-2 mb-2 px-0.5">
+            <h2 className="text-[10px] font-bold ink-3 uppercase tracking-[0.14em]">
+              Offers compared ({offers.length})
+            </h2>
+            {/* Was a full dashed card in the grid, which reserved a whole empty
+                cell — about 400px of nothing on the seeded page, and an empty
+                box in every PDF. */}
+            <button
+              onClick={addOffer}
+              className="no-print text-[10px] font-bold uppercase tracking-[0.12em] ink-2 hover:ink px-2 py-1 rounded-lg border rule surface hover:border-indigo-400 transition-colors"
+            >
+              + Add offer
+            </button>
+          </div>
+
+          {/* Four across on a wide screen, not three. Side-by-side is the whole
+              point of a comparison, and the seeded page carries four offers —
+              at three columns the fourth orphaned onto a row of its own beside
+              a card-and-a-half of dead space. Print overrides this to two. */}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 print-grid-2">
+            {offers.map((o, i) => (
+              <OfferCard
+                key={o.id}
+                offer={o}
+                result={results[i]}
+                engagementResult={engagementResults[i]}
+                globals={globals}
+                warnings={warnings[i]}
+                rank={rank[i]}
+                isBest={i === bestIdx}
+                canDelete={offers.length > 1}
+                patch={(k, v) => patch(o.id, k, v)}
+                setEngagement={(v) => setEngagement(o.id, v)}
+                onDuplicate={() => dupOffer(o)}
+                onDelete={() => delOffer(o.id)}
+                solveHint={
+                  i === bestIdx || !best ? null : <SolveHint offer={o} globals={globals} target={metric(best)} metric={metric} />
+                }
+              />
+            ))}
+          </div>
+        </section>
+
+        <Assumptions g={g} setG={setG} />
+
+        {/* ── Analysis ─────────────────────────────────────────────────────
+            The table and the waterfall are two readings of one dataset, so they
+            are one panel rather than two stacked boxes. The table is the
+            reconciling one and stays open; the chart restates the same split as
+            proportions and is a click away. Print force-opens it. */}
+        <Panel
+          title="Line by line"
+          aside={<span className="text-[10px] ink-3">annual figures, settled rate</span>}
+          bodyClass=""
+        >
+          <ComparisonTable
+            offers={offers} results={results} engagementResults={engagementResults}
+            bestIdx={bestIdx} pensionWeight={g.pensionWeight} metric={metric}
+          />
+
+          <details className="border-t rule px-4 py-2">
+            <Disclosure>Where the gross goes</Disclosure>
+            <div className="pt-3">
+              {/* The print block hides every <summary>, so on paper this section
+                  would arrive with no title at all — unlabelled bars directly
+                  under the comparison table, reading as more of the table. It
+                  had a persistent <h2> before it became a disclosure; this is
+                  that heading, for the one medium that cannot open it. */}
+              <h3 className="print-only text-[10px] font-bold ink-3 uppercase tracking-[0.14em] mb-2">
+                Where the gross goes
+              </h3>
+              <Waterfall offers={offers} results={results} scale={scale} eurRon={eurRon} />
+            </div>
+          </details>
+        </Panel>
+
         <Insights />
 
-        <footer className="text-center text-[11px] ink-3 mt-6 leading-relaxed">
+        <footer className="text-center text-[11px] ink-3 leading-relaxed pt-2">
           <p>
             Estimates for planning, not for filings. Confirm any offer's fine print, and your own
             fiscal position, with an accountant.
@@ -245,14 +303,14 @@ export default function App() {
 
 function Header({ eurRon, eurUsd, eurGbp, setEurRon, setEurUsd, setEurGbp, fx, loadFx, share, copied, reset }) {
   return (
-    <header className="pt-4 pb-5">
+    <header className="pt-2 pb-1">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="text-[10px] font-bold ink-3 uppercase tracking-[0.2em] mb-1">
             Romania · fiscal year {FISCAL_YEAR}
           </div>
-          <h1 className="text-[26px] leading-none font-black ink tracking-tight">Offer normalizer</h1>
-          <p className="text-sm ink-2 mt-1.5">
+          <h1 className="text-[22px] leading-none font-black ink tracking-tight">Offer normalizer</h1>
+          <p className="text-xs ink-2 mt-1">
             Every contract shape reduced to one number: what reaches your account.
           </p>
         </div>
@@ -311,15 +369,15 @@ function RateInput({ label, value, onChange }) {
 }
 
 function FxStatus({ fx }) {
-  if (fx.loading) return <p className="mt-3 text-[11px] ink-3">Fetching exchange rates…</p>
+  if (fx.loading) return <p className="mt-2 text-[10px] ink-3">Fetching exchange rates…</p>
 
   if (fx.manual) {
-    return <p className="mt-3 text-[11px] ink-3">Using the rates you entered.</p>
+    return <p className="mt-2 text-[10px] ink-3">Using the rates you entered.</p>
   }
 
   if (fx.isFallback) {
     return (
-      <div className="mt-3 text-[11px] rounded-lg px-3 py-2 border" style={{ background: '#FFFBEB', borderColor: '#FDE68A', color: '#92400E' }}>
+      <div className="mt-2 text-[11px] rounded-lg px-3 py-2 border" style={{ background: '#FFFBEB', borderColor: '#FDE68A', color: '#92400E' }}>
         <span className="font-bold">These are fallback rates from {FX_FALLBACK.asOf}, not live ones.</span>{' '}
         Every source failed or you are offline. Check them against the{' '}
         <a href="https://www.bnr.ro/Cursuri-de-schimb--1224.aspx" target="_blank" rel="noreferrer" className="underline font-semibold">
@@ -331,7 +389,7 @@ function FxStatus({ fx }) {
   }
 
   return (
-    <p className="mt-3 text-[11px] ink-3">
+    <p className="mt-2 text-[10px] ink-3">
       Rates from {fx.src}, {fx.date}. Overwrite any field to use your own.
     </p>
   )
@@ -342,29 +400,30 @@ function FxStatus({ fx }) {
 function Assumptions({ g, setG }) {
   const set = (k) => (v) => setG((s) => ({ ...s, [k]: v }))
 
-  return (
-    <section className="surface rounded-xl border p-4 mb-4 print-avoid-break">
-      <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
-        <h2 className="text-xs font-bold ink-3 uppercase tracking-[0.14em]">Your assumptions</h2>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-semibold ink-3 uppercase tracking-wider">PFA tax</span>
-          <div className="w-44">
-            <Seg
-              label="PFA tax mode"
-              accent="var(--ink)"
-              value={g.pfaMode}
-              onChange={set('pfaMode')}
-              options={[{ v: 'detailed', l: `${FISCAL_YEAR} rules` }, { v: 'flat', l: 'Flat %' }]}
-            />
-          </div>
-        </div>
+  const pfaMode = (
+    <div className="flex items-center gap-2">
+      <span className="text-[10px] font-semibold ink-3 uppercase tracking-wider">PFA tax</span>
+      <div className="w-40">
+        <Seg
+          label="PFA tax mode"
+          accent="var(--ink)"
+          value={g.pfaMode}
+          onChange={set('pfaMode')}
+          options={[{ v: 'detailed', l: `${FISCAL_YEAR} rules` }, { v: 'flat', l: 'Flat %' }]}
+        />
       </div>
+    </div>
+  )
 
+  return (
+    <Panel title="Applies to every offer" aside={pfaMode} bodyClass="px-4 pt-3 pb-0">
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-3">
         <Field label="Working days / yr" value={g.workDays} onChange={set('workDays')} suffix="days" min={1} max={261} hint="RO ≈ 248" />
         <Field label="Holiday you take" value={g.vacationDays} onChange={set('vacationDays')} suffix="days" max={90} />
         <Field label="Sick days expected" value={g.sickDays} onChange={set('sickDays')} suffix="days" max={90} />
-        <Field label="Business costs / mo" value={g.pfaExpensesMonthly} onChange={set('pfaExpensesMonthly')} suffix="€" step={25} hint="accountant, kit" />
+        {/* "Business costs / mo" wrapped to two lines in a fifth of the panel
+            width and dragged its input below the rest of the row. */}
+        <Field label="Costs / month" value={g.pfaExpensesMonthly} onChange={set('pfaExpensesMonthly')} suffix="€" step={25} hint="accountant, kit" />
         {g.pfaMode === 'flat' ? (
           <Field label="Flat tax rate" value={g.pfaFlat} onChange={set('pfaFlat')} suffix="%" step={0.5} min={0} max={60} />
         ) : (
@@ -381,72 +440,122 @@ function Assumptions({ g, setG }) {
         )}
       </div>
 
+      {/* Four regimes' worth of rates, previously printed in full under the
+          fields on every load. It is reference material — true, worth having,
+          and not something anyone reads twice. */}
       {g.pfaMode === 'detailed' && (
-        <p className="text-[11px] ink-3 mt-1 leading-relaxed">
-          PFA sistem real: CASS 10% on net income (floor {ron(CASS_FLOOR_6)}, ceiling {ron(CASS_CAP_72)}),
-          CAS 25% on a stepped base ({ron(CAS_FLOOR_12)} or {ron(CAS_FLOOR_24)}), then 10% income tax on
-          what remains. Employment: CAS 25% + CASS 10% + 10% tax, uncapped — the IT exemption ended with
-          OUG 156/2024. SRL micro: 1% of turnover with a mandatory employee, then 16% on dividends plus
-          stepped CASS.
-        </p>
+        <details className="-mx-4 px-4 border-t rule-soft">
+          <Disclosure>How each regime is taxed</Disclosure>
+          <p className="text-[11px] ink-2 leading-relaxed pb-3 pt-1">
+            PFA sistem real: CASS 10% on net income (floor {ron(CASS_FLOOR_6)}, ceiling {ron(CASS_CAP_72)}),
+            CAS 25% on a stepped base ({ron(CAS_FLOOR_12)} or {ron(CAS_FLOOR_24)}), then 10% income tax on
+            what remains. Employment: CAS 25% + CASS 10% + 10% tax, uncapped — the IT exemption ended with
+            OUG 156/2024. SRL micro: 1% of turnover with a mandatory employee, then 16% on dividends plus
+            stepped CASS.
+          </p>
+        </details>
       )}
-    </section>
+    </Panel>
   )
 }
 
-/* ── Verdict ────────────────────────────────────────────────────────────── */
+/* ── Summary band ───────────────────────────────────────────────────────── */
 
-function Verdict({ offers, results, bestIdx, rankBy, setRankBy, metric, eurRon }) {
-  const winner = offers[bestIdx]
-  const sorted = [...results].sort((a, b) => metric(b) - metric(a))
-  const gap = results.length > 1 ? metric(sorted[0]) - metric(sorted[1]) : 0
-  const gapPct = results.length > 1 && metric(sorted[1]) > 0 ? (gap / metric(sorted[1])) * 100 : 0
+/** One statistic: label above, figure below. Sub-text stays inside the accent
+ *  colour at reduced opacity — `ink-3` would be grey on a tinted panel, which
+ *  fails contrast in light mode and disappears in dark. */
+function Stat({ label, value, sub }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[9px] font-bold uppercase tracking-[0.14em] opacity-70">{label}</div>
+      <div className="text-lg font-black tabular-nums leading-tight truncate">{value}</div>
+      {sub && <div className="text-[10px] font-semibold opacity-75 truncate">{sub}</div>}
+    </div>
+  )
+}
+
+/**
+ * The finding, as four statistics and a sentence.
+ *
+ * `spread` is the one figure here that is not on any card: how much the whole
+ * decision is worth. When it is small the honest answer is that the offers are
+ * interchangeable on money, and saying so is more useful than a ranking that
+ * implies a winner worth chasing.
+ */
+function Summary({ offers, results, order, rankBy, setRankBy, metric }) {
+  const winner = offers[order[0]]
+  const many = order.length > 1
+
+  const top = metric(results[order[0]])
+  const gap = many ? top - metric(results[order[1]]) : 0
+  const runnerUpMetric = many ? metric(results[order[1]]) : 0
+  const gapPct = many && runnerUpMetric > 0 ? (gap / runnerUpMetric) * 100 : 0
+  const spread = many ? top - metric(results[order[order.length - 1]]) : 0
+
+  const label = rankBy === 'take' ? 'Take-home / year' : 'Cash + pension / year'
 
   return (
-    <section
-      className="accent-panel accent-panel-border rounded-xl border p-4 mb-4 print-avoid-break"
-      style={accentVars(winner.color)}
-    >
-      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
-        <div className="text-base font-black">{winner.name} leads</div>
-        <div
-          className="no-print flex rounded-lg p-0.5 gap-0.5"
-          style={{ background: 'color-mix(in srgb, var(--surface) 75%, transparent)' }}
-        >
-          {[
-            { v: 'take', l: 'By cash' },
-            { v: 'value', l: 'By cash + pension' },
-          ].map((t) => (
-            <button
-              key={t.v}
-              onClick={() => setRankBy(t.v)}
-              aria-pressed={rankBy === t.v}
-              style={
-                rankBy === t.v
-                  ? { background: winner.color.hex, color: '#fff' }
-                  : { color: 'var(--ink-2)' }
-              }
-              className="px-2.5 py-1 rounded-[6px] text-[10px] font-bold uppercase tracking-wider"
-            >
-              {t.l}
-            </button>
-          ))}
+    <section className="accent-panel accent-panel-border panel print-avoid-break" style={accentVars(winner.color)}>
+      <div className="px-4 py-3">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div className="text-[9px] font-bold uppercase tracking-[0.14em] opacity-70 pt-0.5">
+            The finding
+          </div>
+          <div
+            className="no-print flex rounded-lg p-0.5 gap-0.5"
+            style={{ background: 'color-mix(in srgb, var(--surface) 75%, transparent)' }}
+          >
+            {[
+              { v: 'take', l: 'By cash' },
+              { v: 'value', l: 'By cash + pension' },
+            ].map((t) => (
+              <button
+                key={t.v}
+                onClick={() => setRankBy(t.v)}
+                aria-pressed={rankBy === t.v}
+                style={
+                  rankBy === t.v
+                    ? { background: winner.color.hex, color: '#fff' }
+                    : { color: 'var(--ink-2)' }
+                }
+                className="px-2.5 py-1 rounded-[6px] text-[10px] font-bold uppercase tracking-wider"
+              >
+                {t.l}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
 
-      <div className="text-sm opacity-90">
-        {results.length > 1 &&
-          (gapPct < 5 ? (
-            <>
-              Only {eur(gap)} ({pct(gapPct)}) ahead of the runner-up — that is inside the noise.
-              Decide on the terms, not the money.
-            </>
-          ) : (
-            <>
-              {eur(gap)} a year clear of the runner-up ({pct(gapPct)}), or {ron((gap * eurRon) / 12)} a
-              month.
-            </>
-          ))}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-5 gap-y-3 mt-2">
+          <Stat
+            label="Leading offer"
+            value={winner.name}
+            sub={ENGAGEMENT_LABELS[winner.engagement]}
+          />
+          <Stat label={label} value={eur(top)} sub="net of tax and contributions" />
+          {many && (
+            <Stat
+              label="Ahead by"
+              value={eur(gap)}
+              sub={`${pct(gapPct)} over ${offers[order[1]].name}`}
+            />
+          )}
+          {many && (
+            <Stat
+              label="Spread"
+              value={eur(spread)}
+              sub={`best to worst of ${order.length}`}
+            />
+          )}
+        </div>
+
+        {many && (
+          <p className="text-xs opacity-90 mt-3 pt-2.5 border-t" style={{ borderColor: 'color-mix(in srgb, currentColor 20%, transparent)' }}>
+            {gapPct < 5
+              ? 'That gap is inside the noise. These offers pay the same — decide on the terms, not the money.'
+              : `Worth ${eur(gap / 12)} a month over the runner-up. Open the derivation on any card to see where the difference is made.`}
+          </p>
+        )}
       </div>
     </section>
   )
@@ -508,18 +617,41 @@ const INSIGHTS = [
     'An hourly rate, a monthly invoice, a dividend and a gross salary are four different promises. The only honest comparison is the bottom row: what lands in your account.'],
 ]
 
+/**
+ * Eight essays, collapsed.
+ *
+ * This is the page's largest single block of prose and none of it is about the
+ * offers on screen — it is the standing argument for why the tool models what
+ * it models. Open it once, never again. Left expanded it was roughly a screen
+ * of body copy under the answer, which is precisely the "too much to digest"
+ * problem. Print expands it, so the PDF is unchanged.
+ */
 function Insights() {
   return (
-    <section className="surface rounded-xl border p-4 print-avoid-break">
-      <h2 className="text-xs font-bold ink-3 uppercase tracking-[0.14em] mb-3">What the numbers hide</h2>
-      <div className="grid sm:grid-cols-2 gap-x-6 gap-y-3">
-        {INSIGHTS.map(([title, body]) => (
-          <div key={title}>
-            <div className="text-xs font-bold ink mb-0.5">{title}</div>
-            <div className="text-xs ink-2 leading-relaxed">{body}</div>
-          </div>
-        ))}
-      </div>
+    <section className="panel print-avoid-break">
+      <details>
+        <summary className="disclosure no-print panel-head px-4 py-2 text-[10px] font-bold uppercase tracking-[0.14em] ink-3 hover:ink-2">
+          <span className="caret">›</span>
+          What the numbers hide
+          <span className="ml-auto text-[10px] font-semibold normal-case tracking-normal ink-3">
+            {INSIGHTS.length} things worth knowing
+          </span>
+        </summary>
+        <div className="grid sm:grid-cols-2 gap-x-6 gap-y-3 p-4">
+          {/* Same reason as the waterfall heading: the summary is hidden in
+              print, and eight untitled essays after the comparison table give
+              the reader no idea what they are looking at. */}
+          <h3 className="print-only sm:col-span-2 text-[10px] font-bold ink-3 uppercase tracking-[0.14em]">
+            What the numbers hide
+          </h3>
+          {INSIGHTS.map(([title, body]) => (
+            <div key={title}>
+              <div className="text-xs font-bold ink mb-0.5">{title}</div>
+              <div className="text-xs ink-2 leading-relaxed">{body}</div>
+            </div>
+          ))}
+        </div>
+      </details>
     </section>
   )
 }

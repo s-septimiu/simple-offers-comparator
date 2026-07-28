@@ -55,7 +55,11 @@ export default function Seg({ options, value, onChange, accent, label, size = 's
             aria-label={opt.unavailable ? `${opt.l} — not available` : undefined}
             onClick={() => onChange(opt.v)}
             style={on ? { background: 'var(--surface)', color: accent, boxShadow: '0 1px 2px rgba(0,0,0,.08)' } : undefined}
-            className={`flex-1 px-1.5 rounded-[6px] font-bold uppercase tracking-wider transition-colors flex items-center justify-center gap-1 ${
+            // `whitespace-nowrap` and the tightened tracking are load-bearing:
+            // four options inside a quarter-width card left "SRL 16%" about two
+            // pixels short of fitting, so it wrapped to two lines and made that
+            // one control taller than the same control on the card beside it.
+            className={`flex-1 px-1 rounded-[6px] font-bold uppercase tracking-wide whitespace-nowrap transition-colors flex items-center justify-center gap-1 ${
               size === 'sm' ? 'py-1 text-[10px]' : 'py-1.5 text-[11px]'
             } ${on ? '' : 'ink-3 hover:ink-2'}`}
           >

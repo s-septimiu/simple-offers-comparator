@@ -53,6 +53,48 @@ body {
 .rule { border-color: var(--line); }
 .rule-soft { border-color: var(--line-soft); }
 
+/* ── Panels ────────────────────────────────────────────────────────────────
+   Every top-level section is the same object: a bordered surface with a tinted
+   label bar. Repeating `surface rounded-xl border` at eight call sites drifted
+   — one section had a shadow, another a different radius — and inconsistent
+   chrome is what makes a dense page read as cluttered rather than as a
+   dashboard. One class, so they cannot drift again. */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.panel-head {
+  background: var(--line-soft);
+  border-bottom: 1px solid var(--line);
+}
+
+/* ── Disclosure summaries ──────────────────────────────────────────────────
+   Detail lives behind <details> rather than behind a tabbed panel throughout
+   this page. Tabs would owe a full tablist/tab/tabpanel implementation with
+   roving arrow keys — the same bar Seg.jsx had to clear — and a hidden tab is
+   absent from the DOM, so it would vanish from the PDF. <details> is keyboard
+   accessible for free and the print block below force-opens every one of them,
+   so collapsing a section on screen never costs anything on paper. */
+.disclosure {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+}
+
+.disclosure::-webkit-details-marker { display: none; }
+
+.disclosure .caret {
+  transition: transform 150ms ease;
+  display: inline-block;
+}
+
+details[open] > .disclosure .caret { transform: rotate(90deg); }
+
 /* ── Severity notices ──────────────────────────────────────────────────────
    Fixed light backgrounds would sit as bright patches on a dark card, so each
    severity carries a dark-theme pair rather than being tinted at one weight. */
@@ -131,10 +173,36 @@ input[type='number'] { -moz-appearance: textfield; }
   .no-print { display: none !important; }
   .print-only { display: block !important; }
 
-  /* Force every collapsible section open — a printed page cannot be clicked. */
+  /* ── Force every collapsible section open ────────────────────────────────
+     A printed page cannot be clicked, so anything behind a <details> has to
+     print expanded or it is simply missing from the PDF.
+
+     The `display: revert` line below is the old way of doing this and it no
+     longer works on its own. Chrome (and now Firefox and Safari) render the
+     contents of a closed <details> inside a `::details-content` pseudo-element
+     carrying `content-visibility: hidden`. That clips the subtree at the
+     pseudo-element regardless of what the children's own `display` says — the
+     children measure as laid out and visible, while the <details> itself
+     measures zero height. So the rule appeared to work under inspection and
+     printed nothing, which is the worst way for this to fail.
+
+     Both rules are kept: `::details-content` is what actually opens the section
+     on a current browser, and the `display: revert` line still covers anything
+     older than the pseudo-element.
+
+     If you change this, verify by measuring `details.getBoundingClientRect()`
+     under `emulateMedia({ media: 'print' })` — a screenshot of the summary row
+     looks identical whether or not the body came with it. */
   details { display: block !important; }
   details > summary { display: none !important; }
   details > *:not(summary) { display: revert !important; }
+
+  details::details-content {
+    content-visibility: visible !important;
+    block-size: auto !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
 
   .print-avoid-break { break-inside: avoid; page-break-inside: avoid; }
   .print-page-break { break-before: page; page-break-before: always; }

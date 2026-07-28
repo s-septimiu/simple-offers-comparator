@@ -2,7 +2,9 @@ import Field from './Field.jsx'
 import Seg from './Seg.jsx'
 import { useNumericText } from './useNumericText.js'
 import MathDrilldown from './MathDrilldown.jsx'
-import { eur, ron, num } from '../format.js'
+import WarningList from './WarningList.jsx'
+import { Disclosure } from './Panel.jsx'
+import { eur, ron, pct } from '../format.js'
 import { isSrl, isB2B, microUnavailable } from '../engine/compute.js'
 import { OFFER_TEMPLATE, ENGAGEMENT_DESCRIPTIONS, accentVars } from '../defaults.js'
 import { TICKET_MAX, MW_JANUARY, OVERTIME_MIN_MULTIPLIER, MICRO_CEILING_EUR } from '../fiscal/constants.js'
@@ -19,7 +21,7 @@ const ADVANCED_FIELDS = [
 ]
 
 export default function OfferCard({
-  offer, result, engagementResult, globals, warnings,
+  offer, result, engagementResult, globals, warnings, rank,
   isBest, canDelete, patch, setEngagement, onDuplicate, onDelete, solveHint,
 }) {
   const o = offer
@@ -53,10 +55,12 @@ export default function OfferCard({
   return (
     <div
       style={isBest ? { borderColor: accent, boxShadow: `0 0 0 2px ${accent}22` } : undefined}
-      className="surface rounded-xl border p-3.5 flex flex-col print-avoid-break"
+      // `print-avoid-break` is not decoration: an offer torn across a page
+      // boundary is the one thing the print rules were written to prevent.
+      className="panel p-3.5 flex flex-col print-avoid-break"
     >
       {/* ── Header ─────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex items-center gap-2 mb-2">
         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: accent }} />
         <input
           value={o.name}
@@ -64,14 +68,15 @@ export default function OfferCard({
           onChange={(e) => patch('name', e.target.value)}
           className="flex-1 min-w-0 text-sm font-bold ink bg-transparent outline-none rounded px-1 -ml-1"
         />
-        {isBest && (
-          <span
-            className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded"
-            style={{ background: accent, color: '#fff' }}
-          >
-            Leads
-          </span>
-        )}
+        {/* The rank replaces the old lone "Leads" badge. A badge on one card
+            says which card won; a rank on every card says by how much you are
+            reading down the page, which is the question a comparison is for. */}
+        <span
+          className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0"
+          style={isBest ? { background: accent, color: '#fff' } : { background: 'var(--line-soft)', color: 'var(--ink-3)' }}
+        >
+          {isBest ? 'Leads' : `#${rank}`}
+        </span>
         <button
           onClick={onDuplicate}
           aria-label={`Duplicate ${o.name}`}
@@ -89,6 +94,30 @@ export default function OfferCard({
         >
           ×
         </button>
+      </div>
+
+      {/* ── The answer ─────────────────────────────────────────────────────
+          Directly under the card's own name, not pinned to its foot. The take-
+          home used to sit below four field groups and a stack of notices, so
+          the cause (a rate you just typed) and the effect (what it pays) were
+          a screen apart on the one card you were editing. Card headers also
+          share a baseline across a grid row for free, which is the alignment
+          the old `mt-auto` was reaching for and only got when cards happened
+          to be the same height. */}
+      <div className="accent-panel rounded-lg px-3 py-2 mb-2.5" style={accentVars(o.color)}>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-[9px] font-bold uppercase tracking-[0.12em] opacity-80">
+            Take-home / month
+          </span>
+          <span className="text-[10px] font-semibold tabular-nums opacity-75">
+            {pct(result.keepRatio)} kept
+          </span>
+        </div>
+        <div className="text-xl font-black tabular-nums leading-tight mt-0.5">{ron(result.monthlyRON)}</div>
+        <div className="text-[11px] font-semibold tabular-nums opacity-75">
+          {eur(result.monthlyEUR)}
+          {result.work.hoursWorked > 0 && <> · {eur(result.perHourEUR, 1)}/worked hour</>}
+        </div>
       </div>
 
       {/* ── Engagement type ────────────────────────────────────────────── */}
@@ -189,7 +218,7 @@ export default function OfferCard({
         {isCim ? (
           <Field
             label="Meal ticket" value={o.mealTicket} onChange={(v) => patch('mealTicket', v)}
-            suffix="lei/day" hint={`max ${TICKET_MAX}`} max={TICKET_MAX} accent={accent}
+            suffix="lei/day" hint={`≤${TICKET_MAX}`} max={TICKET_MAX} accent={accent}
           />
         ) : (
           <Field
@@ -208,9 +237,9 @@ export default function OfferCard({
       )}
 
       {/* ── Advanced ───────────────────────────────────────────────────── */}
-      <details className="mt-1 mb-2 group">
-        <summary className="no-print cursor-pointer text-[10px] font-bold uppercase tracking-[0.12em] ink-3 hover:ink-2 flex items-center gap-1.5 py-1">
-          <span className="inline-block transition-transform group-open:rotate-90">›</span>
+      <details className="mt-1 mb-2">
+        <summary className="disclosure no-print text-[10px] font-bold uppercase tracking-[0.12em] ink-3 hover:ink-2 py-1">
+          <span className="caret">›</span>
           Timeline &amp; extras
           {advancedCount > 0 && (
             <span
@@ -303,47 +332,29 @@ export default function OfferCard({
       </details>
 
       {/* ── Warnings ───────────────────────────────────────────────────── */}
-      {warnings.length > 0 && (
-        <div className="space-y-1.5 mb-2">
-          {warnings.map((w, i) => (
-            <div
-              key={i}
-              className={`sev sev-${w.severity} rounded-lg px-2.5 py-1.5 text-[10px] leading-snug`}
-            >
-              <span className="font-bold">{w.title}.</span> <span className="opacity-90">{w.detail}</span>
-            </div>
-          ))}
-        </div>
+      <WarningList warnings={warnings} />
+
+      {/* ── What it would take to win ──────────────────────────────────────
+          Sits in the slack at the foot of the card rather than up beside the
+          take-home figure, where it read better but pushed every input below it
+          down by a line — on the leading card there is no hint, so its fields
+          then sat a line higher than the same fields on every other card and
+          the row lost the alignment a comparison depends on. */}
+      {solveHint && <div className="mt-auto pt-2 text-[11px] ink-2 leading-snug">{solveHint}</div>}
+
+      {/* ── Derivation ─────────────────────────────────────────────────────
+          `mt-auto` keeps this pinned to the foot of the card, so the disclosure
+          triangles line up across a grid row however tall each card grew. */}
+      {blocking.length === 0 && (
+        <details className={`${solveHint ? 'mt-2' : 'mt-auto'} pt-1 border-t rule-soft`}>
+          <Disclosure>Show the math</Disclosure>
+          <div className="pt-2">
+            <MathDrilldown
+              offer={o} result={result} engagementResult={engagementResult} globals={globals}
+            />
+          </div>
+        </details>
       )}
-
-      {/* ── Result ─────────────────────────────────────────────────────── */}
-      <div className="mt-auto pt-2">
-        <div className="accent-panel rounded-lg px-3 py-2.5" style={accentVars(o.color)}>
-          <div className="text-[10px] font-bold uppercase tracking-[0.12em] mb-0.5 opacity-85">
-            Take-home / month
-          </div>
-          <div className="text-xl font-black tabular-nums leading-none">{ron(result.monthlyRON)}</div>
-          <div className="text-[11px] font-semibold tabular-nums mt-1 opacity-75">
-            {eur(result.monthlyEUR)}
-            {result.work.hoursWorked > 0 && <> · {eur(result.perHourEUR, 1)}/worked hour</>}
-          </div>
-        </div>
-
-        {solveHint && <div className="mt-1.5 text-[11px] ink-2 leading-snug">{solveHint}</div>}
-
-        {blocking.length === 0 && (
-          <details className="mt-2">
-            <summary className="no-print cursor-pointer text-[10px] font-bold uppercase tracking-[0.12em] ink-3 hover:ink-2 py-1">
-              Show the math
-            </summary>
-            <div className="pt-2">
-              <MathDrilldown
-                offer={o} result={result} engagementResult={engagementResult} globals={globals}
-              />
-            </div>
-          </details>
-        )}
-      </div>
     </div>
   )
 }

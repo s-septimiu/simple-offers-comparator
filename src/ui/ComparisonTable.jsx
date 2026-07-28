@@ -48,16 +48,19 @@ export default function ComparisonTable({ offers, results, engagementResults, be
   ]
 
   return (
-    <div className="surface rounded-xl border overflow-hidden mb-4">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm" style={{ minWidth: 150 + offers.length * 140 }}>
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm" style={{ minWidth: 150 + offers.length * 140 }}>
           <caption className="sr-only">Offer comparison, line by line</caption>
           <thead>
-            <tr className="border-b rule" style={{ background: 'var(--line-soft)' }}>
+            {/* Plain surface, not the tinted `--line-soft` the rest of the page
+                uses for label bars: this row sits immediately under the panel
+                head, which is already tinted, and two stacked grey bands read
+                as one fat ambiguous header. */}
+            <tr className="border-b-2 rule" style={{ background: 'var(--surface)' }}>
               <th
                 scope="col"
                 className="text-left px-3 py-2.5 text-[10px] font-bold ink-3 uppercase tracking-[0.12em] sticky left-0 z-10"
-                style={{ background: 'var(--line-soft)' }}
+                style={{ background: 'var(--surface)' }}
               >
                 Line
               </th>
@@ -208,7 +211,6 @@ export default function ComparisonTable({ offers, results, engagementResults, be
             </tr>
           </tbody>
         </table>
-      </div>
     </div>
   )
 }
