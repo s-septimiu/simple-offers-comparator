@@ -88,6 +88,28 @@ describe('share links', () => {
     expect(decodeState(current)?.offers?.[0]?.name).toBe('From v1')
   })
 
+  /* The globals key was renamed pfaExpensesMonthly → businessCostsMonthly, but
+   * the short key 'X' was kept precisely so links minted before the rename keep
+   * working. The round-trip tests above cannot catch a regression here: they
+   * encode from defaultGlobals(), which already emits the new name, so both
+   * ends would move together. This builds the old link by hand instead.
+   *
+   * Only links where the user CHANGED the costs field carry 'X' at all — pack()
+   * omits anything equal to the default — so these are exactly the links whose
+   * one interesting value would be silently replaced by 250. */
+  it('still decodes a link minted before the costs field was renamed', () => {
+    const b64 = (s) =>
+      btoa(String.fromCharCode(...new TextEncoder().encode(s)))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '')
+
+    const old = b64(JSON.stringify({ o: [{ n: 'Shared in 2026' }], g: { X: 400 }, f: {}, z: 1 }))
+    const decoded = decodeState(old)
+    expect(decoded.globals.businessCostsMonthly).toBe(400)
+    expect(decoded.globals.pfaExpensesMonthly).toBeUndefined()
+  })
+
   it('rejects a truncated link instead of decoding half of it', () => {
     const truncated = encodeState(state).slice(0, -8)
     expect(() => decodeState(truncated)).not.toThrow()

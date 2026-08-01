@@ -214,7 +214,7 @@ function computeCim(offer, g, work, schedule, monthlyRON, extras) {
 
 function computePfa(offer, g, work, schedule, monthlyRON, extras) {
   const activeMonths = schedule.filter((m) => m.active).length
-  const monthlyExpenses = Math.max(0, g.pfaExpensesMonthly || 0) * g.eurRon
+  const monthlyExpenses = Math.max(0, g.businessCostsMonthly || 0) * g.eurRon
   const expenses = monthlyExpenses * activeMonths
 
   /* Plafoane are assessed per CALENDAR YEAR, never per rolling window. An
@@ -238,7 +238,12 @@ function computePfa(offer, g, work, schedule, monthlyRON, extras) {
     tax += t.tax
   }
 
-  const netIncome = Math.max(0, revenue - expenses)
+  /* Cash, not a tax base: receipts minus what you actually spent. Deliberately
+   * NOT clamped at zero the way the per-year base above is — tax cannot go
+   * negative, but a year whose costs outran its receipts really does leave you
+   * down. Clamping here would also break the drilldown, which subtracts these
+   * same lines from gross receipts and must reconcile to the headline. */
+  const netIncome = revenue - expenses
   return {
     grossRON: revenue,
     casRON: cas,
@@ -257,7 +262,7 @@ function computePfa(offer, g, work, schedule, monthlyRON, extras) {
 
 function computeSrlOffer(offer, g, work, schedule, monthlyRON, extras) {
   const activeMonths = schedule.filter((m) => m.active).length
-  const monthlyExpenses = Math.max(0, g.pfaExpensesMonthly || 0) * g.eurRon
+  const monthlyExpenses = Math.max(0, g.businessCostsMonthly || 0) * g.eurRon
   const expenses = monthlyExpenses * activeMonths
   const ceilingRON = microCeilingRON(g)
   const regime = offer.engagement === 'srl-micro' ? 'micro' : 'real'

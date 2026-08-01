@@ -155,7 +155,7 @@ export function defaultGlobals() {
     workDays: 248,
     vacationDays: 25,
     sickDays: 5,
-    pfaExpensesMonthly: 250,
+    businessCostsMonthly: 250,
     pfaMode: 'detailed',
     pfaFlat: 22,
     pensionWeight: 50,

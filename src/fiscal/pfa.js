@@ -66,7 +66,15 @@ export function pfaTax(netIncomeRON, mode = 'detailed', flatPct = 22, chosenCasB
   const cassBase = cassBaseFor(netIncomeRON)
   const cass = cassBase * CASS_RATE
 
-  // Both contributions are deductible from the income-tax base.
+  /* ⚠ DO NOT MOVE THIS SUBTRACTION ABOVE casBaseFor/cassBaseFor.
+   *
+   * Romanian sources routinely describe CASS as a "cheltuială deductibilă",
+   * which reads as an instruction to net it off net income before everything
+   * else. Do that and the CASS base becomes circular — CASS is charged on net
+   * income, so netting CASS out of that base means it depends on itself.
+   *
+   * Both contributions are deducted from the 10% base ONLY, after their own
+   * bases are fixed on undiminished net income (art. 75 and 174). */
   const tax = Math.max(0, netIncomeRON - cas - cass) * TAX_RATE
 
   return { cas, cass, tax, total: cas + cass + tax, casBase, cassBase }

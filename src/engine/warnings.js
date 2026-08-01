@@ -16,6 +16,7 @@
 import {
   MICRO_CEILING_EUR,
   VAT_REGISTRATION_THRESHOLD_RON,
+  MIJLOC_FIX_THRESHOLD_RON,
   STATUTORY_MIN_PTO_DAYS,
   OVERTIME_MIN_MULTIPLIER,
   minimumWageForMonth,
@@ -85,6 +86,34 @@ export function warningsFor(offer, result, globals) {
       `Turnover is above ${ron(VAT_REGISTRATION_THRESHOLD_RON)}, so VAT registration is required. ` +
         `Take-home is unaffected for clients outside Romania — the invoice is reverse-charged — ` +
         `but the compliance work is real.`,
+    )
+  }
+
+  /* ── The one soft spot in the cost model ──────────────────────────────── */
+  /* Business costs are entered as a single monthly figure and deducted in full
+   * in the year they fall. That is exact for recurring spend and wrong for
+   * equipment, which the tool cannot tell apart because the field has no items
+   * in it. So this fires precisely when the model COULD be wrong and stays
+   * silent when it provably cannot: under 5.000 lei of annual cost no single
+   * item can be a mijloc fix at all.
+   *
+   * Not a plausibility test. A threshold on the monthly figure — "too big to be
+   * recurring" — would miss the case this exists for, since a 10.000-lei laptop
+   * spread over twelve months reads as an unremarkable 850 lei a month.
+   *
+   * Safe to read straight off the result: App.jsx passes the STEADY result, so
+   * this is always twelve months of cost regardless of contract length. On the
+   * engagement result a three-month contract would fall under the threshold and
+   * lose the disclosure for no principled reason. CIM never fires — computeCim
+   * reports expensesRON: 0, because an employee deducts nothing. */
+  if (result.expensesRON >= MIJLOC_FIX_THRESHOLD_RON) {
+    add(
+      'info',
+      'Costs are assumed fully deductible this year',
+      `Anything bought for ${ron(MIJLOC_FIX_THRESHOLD_RON)} or more is a mijloc fix ` +
+        `(OUG 8/2026) and is written off over its useful life — 2 to 4 years for IT kit — ` +
+        `not in the year you pay for it. This figure assumes recurring costs only, so if it ` +
+        `folds in a laptop or similar, the first year is optimistic.`,
     )
   }
 

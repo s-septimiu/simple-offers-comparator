@@ -16,7 +16,7 @@
  * ─────────────────────────────────────────────────────────────────────────── */
 
 export const FISCAL_YEAR = 2026
-export const LAST_REVIEWED = '2026-07-27'
+export const LAST_REVIEWED = '2026-08-01'
 
 /* ── Minimum wage ──────────────────────────────────────────────────────────
  *
@@ -121,6 +121,26 @@ export const PROFIT_TAX_RATE = 0.16
  * surfaced as a warning so nobody is blindsided by the registration duty.
  */
 export const VAT_REGISTRATION_THRESHOLD_RON = 395_000
+
+/* ── Mijloace fixe ───────────────────────────────────────────────────────
+ *
+ * The valoare de intrare at or above which a purchase stops being an expense
+ * and becomes a MIJLOC FIX: deducted through linear amortization over its
+ * Catalog life (HG 2139/2004 — 2 to 4 years for IT equipment) rather than in
+ * the year it is paid. Below it, an obiect de inventar, deductible on payment.
+ *
+ * Raised from 2.500 by OUG 8/2026, in force 25 February 2026. Reaches PFA via
+ * art. 68 alin. (4), which refers amortization to art. 28.
+ *
+ * We do NOT model amortization — the costs field is a single monthly figure
+ * with no purchase dates in it, so there is nothing to amortize. This constant
+ * exists only to warn that the figure assumes recurring spend. For the same
+ * reason two refinements are deliberately skipped: the 25 February effective
+ * date, and the transitional rule keeping assets of 2.500–5.000 lei already
+ * depreciating on 31.12.2025 on their remaining life. Both matter only to
+ * someone reconciling a real registru, which this tool is not.
+ */
+export const MIJLOC_FIX_THRESHOLD_RON = 5_000
 
 /* ── Meal tickets ────────────────────────────────────────────────────────
  *

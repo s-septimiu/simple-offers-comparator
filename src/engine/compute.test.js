@@ -10,7 +10,7 @@ const globals = {
   workDays: 248,
   vacationDays: 25,
   sickDays: 5,
-  pfaExpensesMonthly: 250,
+  businessCostsMonthly: 250,
   pfaMode: 'detailed',
   pfaFlat: 22,
   pensionWeight: 50,
@@ -78,6 +78,62 @@ describe('every engagement type produces sane numbers', () => {
     for (const patch of [{ workDays: 0 }, { eurRon: 0 }, { eurRon: NaN }, { vacationDays: 999 }]) {
       const r = compute(offer(), { ...globals, ...patch })
       expect(Number.isFinite(r.takeHomeEUR)).toBe(true)
+    }
+  })
+})
+
+describe('business costs', () => {
+  /* MathDrilldown prints exactly these lines and must add up to the headline.
+   * Benefits are on the list because run() adds them AFTER computePfa returns
+   * and the drilldown gives them their own "Other perks" row — with the default
+   * benefitsMonthly of 0 an assertion that forgot the term would pass while
+   * agreeing with itself, so this offer carries some. */
+  it('leave the PFA drilldown reconciling to take-home', () => {
+    const r = compute(offer({ engagement: 'pfa', benefitsMonthly: 200 }), globals)
+    expect(r.benefitsRON).toBeGreaterThan(0)
+    expect(
+      r.grossRON - r.expensesRON - r.casRON - r.cassRON - r.taxRON + r.benefitsRON,
+    ).toBeCloseTo(r.takeHomeRON, 6)
+  })
+
+  /* Costs above receipts leave you down, and the headline has to say so. The
+   * per-year tax base clamps at zero because tax cannot go negative; take-home
+   * must not, or it stops matching the lines above it. */
+  it('reconcile even when they outrun receipts', () => {
+    const g = { ...globals, businessCostsMonthly: 4000 }
+    const r = compute(offer({ engagement: 'pfa', amount: 500 }), g)
+    expect(r.takeHomeRON).toBeLessThan(0)
+    expect(r.grossRON - r.expensesRON - r.casRON - r.cassRON - r.taxRON).toBeCloseTo(
+      r.takeHomeRON,
+      6,
+    )
+  })
+
+  /* The whole point of deducting them before pfaTax rather than after: costs
+   * move the plafon tests, not just the 10%. */
+  it('pull PFA net income under the CAS floor, not just the tax base', () => {
+    // ptoDays covers the whole 30 days of planned absence, so nothing is
+    // unpaid and receipts are the quoted rate twelve times over — otherwise
+    // attendance pro-rating drags gross back under the floor and the test
+    // passes for the wrong reason.
+    const o = {
+      engagement: 'pfa',
+      ptoDays: globals.vacationDays + globals.sickDays,
+      amount: (CAS_FLOOR_12 + 6000) / 12 / globals.eurRon,
+    }
+    const bare = compute(offer(o), { ...globals, businessCostsMonthly: 0 })
+    const withCosts = compute(offer(o), { ...globals, businessCostsMonthly: 200 })
+
+    expect(bare.grossRON).toBeGreaterThan(CAS_FLOOR_12)
+    expect(withCosts.grossRON).toBeGreaterThan(CAS_FLOOR_12)
+    expect(bare.casRON).toBeGreaterThan(0)
+    expect(withCosts.casRON).toBe(0)
+  })
+
+  it('are ignored for employment and priced for every B2B route', () => {
+    expect(compute(offer({ engagement: 'cim' }), globals).expensesRON).toBe(0)
+    for (const engagement of ['pfa', 'srl-micro', 'srl-real']) {
+      expect(compute(offer({ engagement }), globals).expensesRON).toBeGreaterThan(0)
     }
   })
 })

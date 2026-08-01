@@ -151,7 +151,10 @@ function buildRows(offer, r, globals) {
     if (s.regime === 'micro') {
       push(`Micro tax at ${pct(MICRO_TAX_RATE * 100)}`, neg(s.companyTax), {
         negative: true,
-        note: 'charged on turnover, not profit — expenses do not reduce it',
+        // Reconciles the apparent contradiction with the "Deductible costs"
+        // line above: those costs are real and do come out, they just come out
+        // of the profit rather than out of this 1%.
+        note: 'charged on turnover — the costs above cut your profit, but not this 1%',
       })
     } else {
       push(`Profit tax at ${pct(PROFIT_TAX_RATE * 100)}`, neg(s.companyTax), { negative: true })

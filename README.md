@@ -46,7 +46,18 @@ below it would be worth.
 **Take-home is therefore not monotonic in your rate.** The "what would this need to pay to match the
 leader?" solver copes with that, and will tell you when the answer is to ask for *less*.
 
-**Micro tax is charged on turnover, not profit.** Deductible costs do not reduce it at all.
+**Micro tax is charged on turnover, not profit.** Deductible costs do not reduce it at all. They
+still cut the profit you can distribute, so they are not free — they just buy you nothing on the 1%.
+
+**Business costs are one monthly figure, and it assumes recurring spend.** *Costs / month* is
+annualized and deducted in full: on a PFA it lowers the net income that the CAS plateau, the CASS
+clamp and the 10% are all measured against; on either SRL it comes out of profit before the dividend
+chain. Employment deducts nothing, so the field is ignored there. The assumption to know about is
+the write-off timing — from 5.000 lei up (OUG 8/2026, raised from 2.500) a purchase is a *mijloc
+fix* and is amortized over its Catalog life, 2 to 4 years for IT equipment, rather than deducted in
+the year you pay. So the field is for the accountant, hosting, licences and courses; fold a €2.000
+laptop into it and the first year comes out roughly three times too generous. The tool says so
+rather than modelling it — there are no purchase dates in a single monthly number.
 
 **Plafoane are per calendar year, not per rolling twelve months.** An engagement starting in
 September splits across two tax years, and each partial year is tested against the full annual

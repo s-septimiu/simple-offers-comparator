@@ -22,7 +22,9 @@ const OFFER_KEYS = {
 }
 
 const GLOBAL_KEYS = {
-  workDays: 'W', vacationDays: 'H', sickDays: 'K', pfaExpensesMonthly: 'X',
+  // 'X' predates the rename from pfaExpensesMonthly — the short key is what is
+  // serialized, so keeping it means links shared before the rename still decode.
+  workDays: 'W', vacationDays: 'H', sickDays: 'K', businessCostsMonthly: 'X',
   pfaMode: 'M', pfaFlat: 'F', pensionWeight: 'P',
 }
 

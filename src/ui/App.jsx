@@ -422,8 +422,15 @@ function Assumptions({ g, setG }) {
         <Field label="Holiday you take" value={g.vacationDays} onChange={set('vacationDays')} suffix="days" max={90} />
         <Field label="Sick days expected" value={g.sickDays} onChange={set('sickDays')} suffix="days" max={90} />
         {/* "Business costs / mo" wrapped to two lines in a fifth of the panel
-            width and dragged its input below the rest of the row. */}
-        <Field label="Costs / month" value={g.pfaExpensesMonthly} onChange={set('pfaExpensesMonthly')} suffix="€" step={25} hint="accountant, kit" />
+            width and dragged its input below the rest of the row.
+
+            The hint says which regimes rather than which costs. It used to read
+            "accountant, kit", and "kit" was the one example that does not hold:
+            anything from 5.000 lei up is a mijloc fix and is amortized over
+            years, not deducted now — see MIJLOC_FIX_THRESHOLD_RON and the
+            warning that discloses it. Employment is excluded by the engine
+            (computeCim reports zero), not by disabling this field. */}
+        <Field label="Costs / month" value={g.businessCostsMonthly} onChange={set('businessCostsMonthly')} suffix="€" step={25} hint="PFA & SRL" />
         {g.pfaMode === 'flat' ? (
           <Field label="Flat tax rate" value={g.pfaFlat} onChange={set('pfaFlat')} suffix="%" step={0.5} min={0} max={60} />
         ) : (
@@ -612,7 +619,7 @@ const INSIGHTS = [
   ['Meal tickets beat salary per leu',
     'Tickets carry 10% tax and 10% CASS but no CAS, so you keep 80% against 58,5% on ordinary gross. At 45 lei a day that is roughly 8.500 lei of nominal value a year.'],
   ['Deductible costs are the lever you own',
-    'Accountant, hardware, licences, courses and coworking cut taxable income directly. On an SRL under the real regime they also cut the profit tax. That field is the only number here you can move without anyone else agreeing.'],
+    'Accountant, licences, hosting, courses and coworking cut taxable income directly. On an SRL under the real regime they also cut the profit tax. That field is the only number here you can move without anyone else agreeing. Equipment is the exception: anything from 5.000 lei up is a mijloc fix and is written off over two to four years, so a new laptop is not the lever the rest of this list is.'],
   ['Gross is not a comparable unit',
     'An hourly rate, a monthly invoice, a dividend and a gross salary are four different promises. The only honest comparison is the bottom row: what lands in your account.'],
 ]
